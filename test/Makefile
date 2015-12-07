@@ -31,7 +31,7 @@ DLFLAGS=-fPIC -shared
 all: $(TARGETS)
 
 asyncapp: $(OBJS)
-	$(CC) -o asyncapp $(OBJS) $(BUILDLIBS)
+	$(CC) -o $@ $(OBJS) $(BUILDLIBS)
 
 
 $(OBJS_DIR)/%.o: %.c
