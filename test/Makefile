@@ -30,13 +30,17 @@ DLFLAGS=-fPIC -shared
 
 all: $(TARGETS)
 
-asyncapp: $(OBJS)
+asyncapp: $(OBJS_DIR) $(OBJS)
 	$(CC) -o $@ $(OBJS) $(BUILDLIBS)
 
 
 $(OBJS_DIR)/%.o: %.c
 	$(CC) -o $(OBJS_DIR)/$(notdir $@) -c $^ $(CFLAGS)
 
+$(OBJS_DIR): 
+	if [ ! -d $@ ];then\
+		mkdir $@;\
+	fi
 
 clean:
 	rm -rf $(OBJS) $(TARGETS)
