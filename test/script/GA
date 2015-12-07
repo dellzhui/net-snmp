@@ -1,7 +1,7 @@
 #!/bin/sh
 
 if [ $# -le 2 -o $1 != "-m" ];then
-    echo "GA -m \"informationi\ filelist"
+    echo "GA -m \"information\" filelist"
     exit
 fi
 
