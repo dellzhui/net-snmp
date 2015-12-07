@@ -6,8 +6,8 @@
 # used when linking the snmpd master agent and copy those to this
 # file.
 #
-
-NET_SNMP_BIN_PATH=`pwd`../out/bin
+CURDIR = `pwd`
+NET_SNMP_BIN_PATH=${CURDIR/}../out/bin
 CC=gcc
 SRCS_DIR = src
 OBJS_DIR = objs
