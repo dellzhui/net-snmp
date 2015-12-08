@@ -7,7 +7,7 @@ fi
 
 i=1
 FILES=
-for para in $@;do
+for para in "$@";do
     if [ $i -gt 2 ];then
         if [ ! -e ${para} ];then
             echo "${para} does not exist"

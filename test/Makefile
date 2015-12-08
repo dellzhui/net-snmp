@@ -7,7 +7,7 @@
 # file.
 #
 CURDIR = `pwd`
-NET_SNMP_BIN_PATH=${CURDIR/}../out/bin
+NET_SNMP_BIN_PATH=${CURDIR}/../out/bin
 CC=gcc
 SRCS_DIR = src
 OBJS_DIR = objs
