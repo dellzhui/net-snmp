@@ -17,7 +17,6 @@ TARGETS=asyncapp
 
 CFLAGS=-I./include -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
 BUILDLIBS=`${NET_SNMP_BIN_PATH}/net-snmp-config --libs`
-BUILDAGENTLIBS=`${NET_SNMP_BIN_PATH}/net-snmp-config --agent-libs`
 
 # shared library flags (assumes gcc)
 DLFLAGS=-fPIC -shared
@@ -40,6 +39,3 @@ $(OBJS_DIR):
 clean:
 	rm -rf $(OBJS) $(TARGETS)
 
-nstAgentPluginObject.so: nstAgentPluginObject.c Makefile
-	$(CC) $(CFLAGS) $(DLFLAGS) -c -o nstAgentPluginObject.o nstAgentPluginObject.c
-	$(CC) $(CFLAGS) $(DLFLAGS) -o nstAgentPluginObject.so nstAgentPluginObject.o
