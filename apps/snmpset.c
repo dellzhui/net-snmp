@@ -64,6 +64,25 @@ SOFTWARE.
 
 #include <net-snmp/net-snmp-includes.h>
 
+static int print_oid(oid *Oid, int len)
+{
+    oid *oids = Oid;
+    
+    if(Oid == NULL || len  <= 0)
+    {
+        printf("%s %d:input wrong\n", __FUNCTION__, __LINE__);
+    }
+    
+    printf("print oid:");
+    while(oids - Oid < len)
+    {
+        printf("%d ", (int)*oids);
+        oids++;
+    }
+    printf("\n");
+}
+
+
 void
 usage(void)
 {
@@ -249,9 +268,13 @@ main(int argc, char *argv[])
     if (status == STAT_SUCCESS) {
         if (response->errstat == SNMP_ERR_NOERROR) {
             if (!quiet) {
+                int aaa = 0;
                 for (vars = response->variables; vars;
                      vars = vars->next_variable)
+                 {
+                    print_oid(vars->name, vars->name_length);
                     print_variable(vars->name, vars->name_length, vars);
+                 }
             }
         } else {
             fprintf(stderr, "Error in packet.\nReason: %s\n",
@@ -262,7 +285,9 @@ main(int argc, char *argv[])
                      vars && (count != response->errindex);
                      vars = vars->next_variable, count++);
                 if (vars)
+                {
                     fprint_objid(stderr, vars->name, vars->name_length);
+                }
                 fprintf(stderr, "\n");
             }
             exitval = 2;

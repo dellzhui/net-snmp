@@ -236,7 +236,7 @@ _demoIpTable_initialize_interface(demoIpTable_registration * reg_ptr,  u_long fl
                                                   demoIpTable_oid,
                                                   demoIpTable_oid_size,
                                                   HANDLER_CAN_BABY_STEP |
-#if !(defined(NETSNMP_NO_WRITE_SUPPORT) || defined(NETSNMP_DISABLE_SET_SUPPORT))
+#if (defined(NETSNMP_NO_WRITE_SUPPORT) || defined(NETSNMP_DISABLE_SET_SUPPORT))
                                                   HANDLER_CAN_RONLY
 #else
                                                   HANDLER_CAN_RWRITE
@@ -1373,6 +1373,7 @@ static void _container_free(netsnmp_container *container);
 static int
 _cache_load(netsnmp_cache *cache, void *vmagic)
 {
+    printf("%s %d:internal:demoIpTable:_cache_load", __FUNCTION__, __LINE__);
     DEBUGMSGTL(("internal:demoIpTable:_cache_load","called\n"));
 
     if((NULL == cache) || (NULL == cache->magic)) {
