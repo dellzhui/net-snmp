@@ -257,13 +257,25 @@ demoIpTable_commit( demoIpTable_rowreq_ctx *rowreq_ctx)
      * 3) set the column's flag in column_set_flags if it needs undo
      *    processing in case of a failure.
      */
+
+     FILE *fp = NULL;
+     char aaa[256] = {0};
+
+     fp = fopen("/share/3383_out/test/aaa", "a+");
+     if(fp == NULL)
+     {
+        return MFD_NOT_WRITABLE;
+     }
+     
     if (save_flags & COLUMN_DEMOIPINUSE_FLAG) {
        save_flags &= ~COLUMN_DEMOIPINUSE_FLAG; /* clear demoIpInuse */
        /*
         * TODO:482:o: |-> commit column demoIpInuse.
         */
        rc = -1;
-       if(-1 == rc) {
+       snprintf(aaa, sizeof(aaa) - 1, "IpInuse:%d\n", rowreq_ctx->data.demoIpInuse);
+       rc = fwrite(aaa, 1, strlen(aaa), fp);
+       if(rc <= 0) {
            snmp_log(LOG_ERR,"demoIpTable column demoIpInuse commit failed\n");
        }
        else {
@@ -280,13 +292,16 @@ demoIpTable_commit( demoIpTable_rowreq_ctx *rowreq_ctx)
         * TODO:482:o: |-> commit column demoIpAddress.
         */
        rc = -1;
-       if(-1 == rc) {
+       snprintf(aaa, sizeof(aaa) - 1, "IpAdress:%s\n", rowreq_ctx->data.demoIpAddress);
+       rc = fwrite(aaa, 1, strlen(aaa), fp);
+       if(rc <= 0) {
            snmp_log(LOG_ERR,"demoIpTable column demoIpAddress commit failed\n");
        }
        else {
             /*
              * set flag, in case we need to undo demoIpAddress
              */
+             
             rowreq_ctx->column_set_flags |= COLUMN_DEMOIPADDRESS_FLAG;
        }
     }
@@ -297,7 +312,9 @@ demoIpTable_commit( demoIpTable_rowreq_ctx *rowreq_ctx)
         * TODO:482:o: |-> commit column demoMacAddress.
         */
        rc = -1;
-       if(-1 == rc) {
+       snprintf(aaa, sizeof(aaa) - 1, "MacAdress:%s\n", rowreq_ctx->data.demoMacAddress);
+       rc = fwrite(aaa, 1, strlen(aaa), fp);
+       if(rc <= 0) {
            snmp_log(LOG_ERR,"demoIpTable column demoMacAddress commit failed\n");
        }
        else {
@@ -311,6 +328,7 @@ demoIpTable_commit( demoIpTable_rowreq_ctx *rowreq_ctx)
     /*
      * if we successfully commited this row, set the dirty flag.
      */
+     rc = 0;
     if (MFD_SUCCESS == rc) {
         rowreq_ctx->rowreq_flags |= MFD_ROW_DIRTY;
     }
@@ -320,6 +338,10 @@ demoIpTable_commit( demoIpTable_rowreq_ctx *rowreq_ctx)
        return MFD_ERROR;
     }
 
+    if(fp)
+    {
+        fclose(fp);
+    }
     return rc;
 } /* demoIpTable_commit */
 
