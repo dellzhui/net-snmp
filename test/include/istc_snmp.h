@@ -38,12 +38,33 @@ typedef enum
     ISTC_SNMP_ERR_INCONSISTENTNAME
 }ISTC_SNMP_RESPONSE_ERRSTAT;
 
+typedef struct tagSNMP_DATA
+{
+    struct tagSNMP_DATA *next;
+    void *data;
+}SNMP_DATA_LIST;
+
+typedef struct tagPDU_LIST
+{
+    struct tagPDU_LIST *next;
+    struct snmp_pdu *response;
+}PDU_LIST_st;
+
+typedef int (*table_set_column)(void *rowreq_ctx, netsnmp_variable_list *var, int column);
+
+
 int istc_snmp_init(void);
 int istc_snmp_print_oid(oid *Oid, int len);
-int istc_snmp_print_pdu(netsnmp_pdu *pResponse, char *oid_name);
-int istc_snmp_free_pdu(netsnmp_pdu *pResponse);
-int istc_snmp_walk(char *host, char *community, char *oid_name, int *reps, netsnmp_pdu **pResponse);
-int istc_snmp_set(char *host, char *community, char *oid_name, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_print_pdu(PDU_LIST_st *pdu_list, char *oid_name);
+int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
+int istc_snmp_free_datalist(SNMP_DATA_LIST *data_list);
+int istc_snmp_walk(char *oid_name, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_set(char *oid_name, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_patse_data(char *oid_name, SNMP_DATA_LIST **data_list);
+int istc_snmp_get_host_name(char *host_name, int host_name_len);
+int istc_snmp_set_host_name(char *host_name);
+int istc_snmp_get_community_name(char *community_name, int community_name_len);
+int istc_snmp_set_community_name(char *community_name);
 
 
 #ifdef __cplusplus

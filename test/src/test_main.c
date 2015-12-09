@@ -34,6 +34,7 @@ struct oid {
 int main(void)
 {
     netsnmp_pdu *response = NULL;
+    netsnmp_pdu *pdu
     char *host = (char *)hosts[0].name;
     char *community = (char *)hosts[0].community;
     char *oid_name = (char *)oids[0].Name;

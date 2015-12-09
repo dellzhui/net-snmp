@@ -206,6 +206,7 @@ demoIpTable_container_load(netsnmp_container *container)
 {
     demoIpTable_rowreq_ctx *rowreq_ctx;
     size_t                 count = 0;
+    static int aaa = 0;
 
     /*
      * temporary storage for index values
@@ -343,8 +344,11 @@ demoIpTable_container_load(netsnmp_container *container)
         //snmp_log(LOG_ERR,"not enough space for value (demoIpAddress)\n");
         //return MFD_ERROR;
     }
+    if(aaa % 2 == 0)
+    {
     rowreq_ctx->data.demoIpAddress_len = demoIpAddress_len* sizeof(demoIpAddress[0]);
     memcpy( rowreq_ctx->data.demoIpAddress, demoIpAddress, demoIpAddress_len* sizeof(demoIpAddress[0]) );
+    }
     
     /*
      * setup/save data for demoMacAddress
@@ -360,8 +364,11 @@ demoIpTable_container_load(netsnmp_container *container)
         //snmp_log(LOG_ERR,"not enough space for value (demoMacAddress)\n");
         //return MFD_ERROR;
     }
-    rowreq_ctx->data.demoMacAddress_len = demoMacAddress_len* sizeof(demoMacAddress[0]);
-    memcpy( rowreq_ctx->data.demoMacAddress, demoMacAddress, demoMacAddress_len* sizeof(demoMacAddress[0]) );
+    
+    {
+        rowreq_ctx->data.demoMacAddress_len = demoMacAddress_len* sizeof(demoMacAddress[0]);
+        memcpy( rowreq_ctx->data.demoMacAddress, demoMacAddress, demoMacAddress_len* sizeof(demoMacAddress[0]) );
+    }
     
         
         /*
@@ -370,6 +377,7 @@ demoIpTable_container_load(netsnmp_container *container)
         CONTAINER_INSERT(container, rowreq_ctx);
         ++count;
         demoIpIndex++;
+        aaa++;
     }
 
     /*
