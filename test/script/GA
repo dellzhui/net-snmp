@@ -40,7 +40,7 @@ fi
 if [ ! -z ${INF} ];then
 	git commit -m "$2" ${FILES}
 else
-	git commit -m "update" ${FILES}
+	git commit -m "GA update" ${FILES}
 fi
 
 if [ $? -ne 0 ];then

@@ -1,14 +1,29 @@
 #!/bin/sh
 
-if [ $# -le 2 -o $1 != "-m" ];then
+if [ $# -le 0 ];then
     echo "GD -m \"information\" filelist"
     exit
 fi
 
+if [ $# -eq 1 -a  "$1" = "-m" ];then
+    echo "GD -m \"information\" filelist"
+	exit
+fi
+
 i=1
 FILES=
+INF=
+
+if [ "$1" = "-m" ];then
+	INF=$2
+fi
+
 for para in "$@";do
-    if [ $i -gt 2 ];then
+    if [ ! -z ${INF} -a $i -gt 2 ] || [ -z ${INF} ];then
+        if [ ! -e ${para} ];then
+            echo "${para} does not exist"
+            exit
+        fi
         FILES+=" ${para} "
     fi
     let i++
@@ -22,7 +37,11 @@ if [ $? -ne 0 ];then
     exit
 fi
 
-git commit -m "$2"
+if [ ! -z ${INF} ];then
+	git commit -m "$2" ${FILES}
+else
+	git commit -m "GD update" ${FILES}
+fi
 
 if [ $? -ne 0 ];then
     echo "git commit failed"
