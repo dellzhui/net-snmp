@@ -215,9 +215,9 @@ demoIpTable_container_load(netsnmp_container *container)
          * demoIpIndex(1)/INTEGER32/ASN_INTEGER/long(long)//l/a/w/e/r/d/h
          */
    long   demoIpIndex = 0;
-   char demoIpAddress[256];
+   char demoIpAddress[MAX_LINE_SIZE];
    size_t demoIpAddress_len;
-   char demoMacAddress[256];
+   char demoMacAddress[MAX_LINE_SIZE];
    size_t demoMacAddress_len;
    int demoIpInuse = 0;
 
