@@ -700,7 +700,6 @@ int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DAT
         istc_log("can not parse pdulist\n");
         return -1;
     }
-
     return 0;
 }
 
