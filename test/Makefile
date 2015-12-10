@@ -28,7 +28,7 @@ asyncapp: $(OBJS_DIR) $(OBJS)
 
 
 $(OBJS_DIR)/%.o: %.c
-	@echo "compiling $(notdir $@)"
+	@echo "compiling $(notdir $^)"
 	@$(CC) -o $(OBJS_DIR)/$(notdir $@) -c $^ $(CFLAGS)
 
 $(OBJS_DIR): 
