@@ -268,7 +268,12 @@ demoIpTable_container_load(netsnmp_container *container)
             filep = NULL;
         }
     } while (filep && (line[0] == '\n'));
-    printf("%s %d:aaa\n", __FUNCTION__, __LINE__);
+    
+    char *str = strstr(line, "\n");
+    if(str)
+    {
+        *str = 0;
+    }
     //memset(demoIpAddress, 0, sizeof(demoIpAddress));
     //memset(demoMacAddress, 0, sizeof(demoMacAddress));
     //strncpy(demoIpAddress, line, sizeof(demoIpAddress) - 1);
