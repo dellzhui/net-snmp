@@ -1087,13 +1087,14 @@ _demoIpTable_set_column( demoIpTable_rowreq_ctx *rowreq_ctx,
     
     DEBUGMSGTL(("internal:demoIpTable:_demoIpTable_set_column",
                 "called for %d\n", column));
-
+    //printf("%s %d:column = %d", __FUNCTION__, __LINE__, column);
     netsnmp_assert(NULL != rowreq_ctx);
 
     switch(column) {
 
     /* demoIpInuse(2)/INTEGER32/ASN_INTEGER/long(long)//l/A/W/e/r/d/h */
     case COLUMN_DEMOIPINUSE:
+        //printf("inuse = %ld\n", *((long *)var->val.string));
         rowreq_ctx->column_set_flags |= COLUMN_DEMOIPINUSE_FLAG;
         rc = demoIpInuse_set(rowreq_ctx, *((long *)var->val.string) );
         break;
@@ -1102,12 +1103,14 @@ _demoIpTable_set_column( demoIpTable_rowreq_ctx *rowreq_ctx,
     case COLUMN_DEMOIPADDRESS:
         rowreq_ctx->column_set_flags |= COLUMN_DEMOIPADDRESS_FLAG;
         rc = demoIpAddress_set(rowreq_ctx, (char *)var->val.string, var->val_len );
+        //printf("rc = %d, ipadress = %s, len = %d\n", rc, (char *)rowreq_ctx->data.demoIpAddress, rowreq_ctx->data.demoIpAddress_len);
         break;
 
     /* demoMacAddress(4)/OCTETSTR/ASN_OCTET_STR/char(char)//L/A/W/e/r/d/h */
     case COLUMN_DEMOMACADDRESS:
         rowreq_ctx->column_set_flags |= COLUMN_DEMOMACADDRESS_FLAG;
         rc = demoMacAddress_set(rowreq_ctx, (char *)var->val.string, var->val_len );
+        //printf("rc = %d, macadress = %s\n", rc, (char *)rowreq_ctx->data.demoMacAddress);
         break;
 
      default:
