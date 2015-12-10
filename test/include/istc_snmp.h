@@ -42,7 +42,7 @@ typedef struct tagSNMP_DATA
 {
     struct tagSNMP_DATA *next;
     void *data;
-}SNMP_DATA_LIST;
+}SNMP_DATA_LIST_st;
 
 typedef struct tagPDU_LIST
 {
@@ -56,7 +56,7 @@ typedef struct tagSNMP_AGENT_INFO_st
     char community[32];
 }SNMP_AGENT_INFO_st;
 
-typedef int (*table_set_column)(void *rowreq_ctx, netsnmp_variable_list *var, int column);
+typedef int (*SnmpTableFun)(void *rowreq_ctx, netsnmp_variable_list *var, int column);
 
 
 int istc_snmp_init(void);
@@ -65,10 +65,10 @@ int istc_snmp_set(char *oid_name, char type, char *values, ISTC_SNMP_RESPONSE_ER
 int istc_snmp_print_oid(oid *Oid, int len);
 int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, char *oid_name);
 int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
-int istc_snmp_free_datalist(SNMP_DATA_LIST *data_list);
-int istc_snmp_parse_data(char *oid_name, SNMP_DATA_LIST **data_list);
+int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList);
+int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
 int istc_snmp_get_agent_info(SNMP_AGENT_INFO_st *agentinfo);
-int istc_snmp_set_agent_info(SNMP_AGENT_INFO_st agentinfo);
+int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
 
 #ifdef __cplusplus
 }
