@@ -48,14 +48,14 @@ int snmp_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num)
                 {
                     printf("%s %d:get rows_num:%d success\n", __FUNCTION__, __LINE__, oid_index);
                     *rows_num = oid_index;
-                    return 0;
+                    return ISTC_SNMP_SUCCESS;
                 }
             }
             oid_index++;
         }
     }
     printf("%s %d:can not get rows_num\n", __FUNCTION__, __LINE__);
-    return -1;
+    return ISTC_SNMP_ERROR;
 }
 
 int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList)
@@ -75,7 +75,7 @@ int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNM
     if(pPDUList != NULL && pPDUList->response == NULL && fun != NULL && DataLen > 0 && pDataList != NULL)
     {
         istc_log("input wrong\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     istc_log("data_len = %d\n", DataLen);
@@ -85,19 +85,19 @@ int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNM
         (root_oid_len = pPDUList->response->variables->name_length) - 2 <= 0)
     {
         istc_log("invald root oid\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     if(snmp_get_rows_num(pPDUList, &rows_num) != 0 || rows_num <= 0)
     {
         istc_log("can not get rows_num\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     if((data_list = (void **)calloc(1, rows_num))== NULL)
     {
         istc_log("can not get calloc\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     
     for(pdu_list = pPDUList; pdu_list != NULL && end == 0; pdu_list = pdu_list->next)
@@ -174,14 +174,14 @@ int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNM
         {
             printf("parse data error\n");
             istc_snmp_free_datalist(data_head);
-            return -1;
+            return ISTC_SNMP_ERROR;
         }
         *pDataList = data_head;
         istc_log("parse data success\n");
-        return 0;
+        return ISTC_SNMP_SUCCESS;
     }
     printf("parse data error\n");
-    return -1;
+    return ISTC_SNMP_ERROR;
 }
 
 int snmp_get_varcnt(netsnmp_pdu *pResponse, oid *rootOID, size_t rootOID_len, int *pNumbersGet)
@@ -218,7 +218,7 @@ int snmp_walk_to_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_
     if(ss == NULL || theoid == NULL ||theoid_len <= 0 || pdu_list == NULL)
     {
         printf("%s %d:input wrong\n", __FUNCTION__, __LINE__);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     
     pdu = snmp_pdu_create(SNMP_MSG_GET);
@@ -228,7 +228,7 @@ int snmp_walk_to_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_
     if(response == NULL)
     {
         printf("%s %d:snmpget error\n", __FUNCTION__, __LINE__);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     *pStatus = response->errstat;
     if(status != STAT_SUCCESS || response->errstat != SNMP_ERR_NOERROR)
@@ -236,12 +236,12 @@ int snmp_walk_to_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_
         printf("%s %d:can not get oid", __FUNCTION__, __LINE__);
         istc_snmp_print_oid(theoid, theoid_len);
         snmp_free_pdu(response);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     
     pdu_list->response = response;
 
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int snmp_walk(netsnmp_session * pSnmpSession, oid *rootOID, int rootOID_len, PDU_LIST_st **pPDUList, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus)
@@ -262,7 +262,7 @@ int snmp_walk(netsnmp_session * pSnmpSession, oid *rootOID, int rootOID_len, PDU
     if(pSnmpSession == NULL || rootOID == NULL || rootOID_len <= 0 || pPDUList == NULL || pStatus == NULL)
     {
         printf("%s %d:input wrong\n", __FUNCTION__, __LINE__);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     memset(anOID, 0, sizeof(anOID));
@@ -424,10 +424,10 @@ int snmp_walk(netsnmp_session * pSnmpSession, oid *rootOID, int rootOID_len, PDU
     {
          *pPDUList = pdu_head;
          printf("%s %d:snmpwalk success\n", __FUNCTION__, __LINE__);
-        return 0;
+        return ISTC_SNMP_SUCCESS;
     }
     printf("%s %d:snmpwalk error\n", __FUNCTION__, __LINE__);
-    return -1;
+    return ISTC_SNMP_ERROR;
 }
 
 int snmp_set(netsnmp_session *pSession, oid * rootOID, size_t rootOID_len, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus)
@@ -493,7 +493,7 @@ int snmp_set(netsnmp_session *pSession, oid * rootOID, size_t rootOID_len, char 
 int istc_snmp_init(void)
 {
     init_snmp("asynchapp");
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int istc_snmp_walk(char *oid_name, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus)
@@ -510,7 +510,7 @@ int istc_snmp_walk(char *oid_name, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ER
     if(pSnmpSession == NULL)
     {
         printf("%s %d:snmp agent info has not been set\n", __FUNCTION__, __LINE__);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     printf("%s %d:get from host %s, oid_name = %s\n", __FUNCTION__, __LINE__, pSnmpSession->peername, oid_name);
@@ -542,7 +542,7 @@ int istc_snmp_set(char *oid_name, char type, char *values, ISTC_SNMP_RESPONSE_ER
     if(pSnmpSession == NULL)
     {
         printf("%s %d:snmp agent info has not been set\n", __FUNCTION__, __LINE__);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     *pStatus = ISTC_SNMP_ERR_UNKNOWN;
@@ -593,13 +593,13 @@ int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, char *oid_name)
     if(pdu_list == NULL || oid_name == NULL)
     {
         printf("%s %d:input wrong, pdu_list = %p, root_oid = %p, root_oid_len = %d\n", __FUNCTION__, __LINE__, pdu_list, rootOID, rootOID_len);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     if(snmp_parse_oid(oid_name, rootOID, &rootOID_len) == 0)
     {
         printf("%s %d:can not find oid:%s\n", __FUNCTION__, __LINE__, oid_name);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     
     for(pdu_list_tmp = pdu_list_head; pdu_list_tmp; pdu_list_tmp = pdu_list_tmp->next)
@@ -614,7 +614,7 @@ int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, char *oid_name)
         }
     }
     printf("%s %d:number total get:%d\n", __FUNCTION__, __LINE__, numbers_get);
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list)
@@ -634,7 +634,7 @@ int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list)
         free(pdu_list_tmp);
     }
     pdu_list = pdu_list_head;
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList)
@@ -653,7 +653,7 @@ int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList)
         }
         free(data_list_tmp);
     }
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo)
 {
@@ -676,7 +676,7 @@ int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo)
       snmp_perror("snmp_open");
       return  ISTC_SNMP_ERROR;
     }
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList)
@@ -690,7 +690,7 @@ int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DAT
     if(istc_snmp_walk(oid_name, &pdu_list, &stat) != 0 || pdu_list == NULL)
     {
         istc_log("snmpwalk error, oid_name = %s", oid_name);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     //istc_snmp_print_pdulist(pdu_list, oid_name);
@@ -698,9 +698,8 @@ int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DAT
     if(snmp_parse_pdulist(pdu_list, fun, DataLen, pDataList) != 0)
     {
         istc_log("can not parse pdulist\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
-
 
