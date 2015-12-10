@@ -1,3 +1,3 @@
 #!/bin/sh
 
-git diff | grep "diff " | sed 's/diff --git a\///g'
+git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'
