@@ -1,3 +1,6 @@
 #!/bin/sh
 
-git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'
+FILES=`pwd`
+FILES+=" $@"
+
+git diff ${FILES} | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'
