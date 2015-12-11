@@ -7,15 +7,19 @@
 static struct snmp_session *pSnmpSession = NULL;
 
 
+static int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st **pDataList);
+
+static int snmp_find_datalist(SNMP_DATA_LIST_st *head, int index, SNMP_DATA_LIST_st **pDataList);
+
+static int snmp_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num);
+
+static int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
+
 static int snmp_walk_to_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_LIST_st *pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
 
 static int snmp_walk(netsnmp_session * pSnmpSession, oid *rootOID, int rootOID_len, PDU_LIST_st **pPDUList, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
 
 static int snmp_set(netsnmp_session *pSession, oid * rootOID, size_t rootOID_len, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
-
-static int snmp_get_rows_num(PDU_LIST_st *pdu_list, int *row_num);
-
-static int snmp_parse_pdulist(PDU_LIST_st *pPDUList, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
 
 
 int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st **pDataList)
@@ -42,7 +46,6 @@ int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st *
             (*head) = NULL;
             return -1;
         }
-        //istc_log("add head success\n");
         *pDataList = *head;
         return 0;
     }
@@ -67,7 +70,6 @@ int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st *
         return -1;
     }
     *pDataList = data_list;
-    //istc_log("add data_list node success\n");
     return 0;
 }
 
