@@ -67,7 +67,6 @@ int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, char *oid_name);
 int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
 int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList);
 int istc_snmp_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
-int istc_snmp_get_agent_info(SNMP_AGENT_INFO_st *agentinfo);
 int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
 
 #ifdef __cplusplus
