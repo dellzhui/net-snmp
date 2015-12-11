@@ -1,11 +1,14 @@
 #!/bin/sh
 
-RESULT=`git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'`
+RESULT=`git diff . | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'`
 
-if [ -z ${RESULT} ];then
+if [ -z "${RESULT}" ];then
 	echo "no diff information"
 	exit
 fi
+
+echo "commit list:"
+echo "${RESULT}"
 
 for i in `git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'`;do
     git commit -m "update" $i
