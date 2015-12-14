@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "net-snmp/net-snmp-config.h"
 #include "net-snmp/net-snmp-includes.h"
-#include "istc_snmp.h"
+#include "istc_snmp_interface.h"
 #include "demoIpTable.h"
 #include "demoIpTable_interface.h"
 #include "clabWIFIAccessPointTable.h"
@@ -49,7 +49,7 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
             istc_log("no data beed saved\n");
             return -1;
         }
-        ctx = (demoIpTable_rowreq_ctx *)data_list->data;
+        ctx = (clabWIFIAccessPointTable_rowreq_ctx *)data_list->data;
         printf("\n");
         istc_log("rows index:%d\n", ++rows);
 #if 0        
@@ -63,7 +63,7 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
     return 0;
 }
 
-int main(void)
+int main1(void)
 {
     char *oid_name = (char *)oids[0].Name;
     SNMP_AGENT_INFO_st agent_info;
@@ -103,7 +103,7 @@ int main(void)
         printf("%s %d:stat = %d\n", __FUNCTION__, __LINE__, stat);
     }
 #else
-    if(istc_snmp_parse_data(oid_name, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list) != 0)
+    if(istc_snmp_table_parse_data(oid_name, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list) != 0)
     {
         istc_log("can not parse data_list\n");
         return -1;
