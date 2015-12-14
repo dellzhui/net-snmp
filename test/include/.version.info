@@ -1,0 +1,4 @@
+#ifndef __VERSION_INFO__
+#define __VERSION_INFO__ 1
+#define VERSION_INFO "000000.000000"
+#endif
