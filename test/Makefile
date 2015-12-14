@@ -18,8 +18,8 @@ vpath %.c $(SRCS_DIR)
 
 TARGETS=asyncapp
 
-CFLAGS=-I./include -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
-BUILDLIBS=`${NET_SNMP_BIN_PATH}/net-snmp-config --libs`
+CFLAGS=-I./include -Werror -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
+BUILDLIBS= -lpthread `${NET_SNMP_BIN_PATH}/net-snmp-config --libs`
 DLFLAGS=-fPIC -shared
 
 all: clean $(TARGETS)
