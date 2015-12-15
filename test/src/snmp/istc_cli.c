@@ -4221,7 +4221,7 @@ void usage()
 }
 
 
-int main(int argc, char *argv[])
+int main1(int argc, char *argv[])
 {
     unsigned int addr = 0;
     int opt;
