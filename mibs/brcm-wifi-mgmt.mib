@@ -62,7 +62,8 @@ IMPORTS
     MODULE-IDENTITY,
     OBJECT-TYPE,
     Integer32,
-    Unsigned32
+    Unsigned32,
+	Counter64
         FROM SNMPv2-SMI
     TruthValue,
     DisplayString,
@@ -80,7 +81,7 @@ IMPORTS
         FROM BRCM-CABLEDATA-MGMT-MIB;
 
 wifiMgmt MODULE-IDENTITY
-    LAST-UPDATED "201502130000Z"
+    LAST-UPDATED "201512070000Z"
     ORGANIZATION "Broadcom Corporation"
     CONTACT-INFO
         "    BANANA-CABLEDATA
@@ -101,13 +102,17 @@ wifiMgmt MODULE-IDENTITY
 
              This MIB replaces the deprecated BRCM-80211-MGMT-MIB, which was
              not designed to accommodate multiple wi-fi interfaces."
+    REVISION      "201512070000Z"
+    DESCRIPTION
+             "Added wifiAssocStaTxBytes and wifiAssocStaRxBytes MIBs in 
+             wifiAssocStaTable."
+    REVISION      "201510160000Z"
+    DESCRIPTION
+             "Added none option to the and value options for wifiBssWpaAlgorithm."
     REVISION      "201502130000Z"
     DESCRIPTION
              "Added wifiChannelBandwidth and wifiChannelSpec MIBs in 
-             wifiApsScanResultsTable.  WifiChannel deprecated."
-    REVISION      "201502100000Z"
-    DESCRIPTION
-             "wifiOutputPower change to read-only and obsolete."
+             wifiApsScanResultsTable."
     REVISION      "201501160000Z"
     DESCRIPTION
              "Added wifiOperatingChannel, wifiACOperatingChanSpec MIBs."
@@ -1817,6 +1822,7 @@ WifiBssWpaEntry ::=
     
 wifiBssWpaAlgorithm OBJECT-TYPE
     SYNTAX      INTEGER {
+                none(1),
                 aes(2),
                 tkipPlusAes(3)
     }
@@ -1824,10 +1830,9 @@ wifiBssWpaAlgorithm OBJECT-TYPE
     STATUS      current
     DESCRIPTION
         "Controls and reflects the WPA encryption mode used by the service set.  
-         The WPA algorithm for WPA-PSK and WPA-Enterprise security mode is aes(2).
-        
          The WPA algorithm for WPA2-PSK and WPA2-Enterprise security mode is 
-         either aes(2) or tkipPlusAes(3)."
+         either aes(2) or tkipPlusAes(3).  If feature is disabled, then none (1)
+         is returned."
     ::= { wifiBssWpaEntry 1 }
     
 wifiBssWpaPreSharedKey OBJECT-TYPE
@@ -2297,8 +2302,8 @@ WifiAssocStaEntry ::=
         wifiAssocStaPAcked          Unsigned32,
         wifiAssocStaPTput           Unsigned32,
         wifiAssocStaPPhyRate        Unsigned32,
-        wifiAssocStaTxBytes         Unsigned32,
-        wifiAssocStaRxBytes         Unsigned32
+        wifiAssocStaTxBytes         Counter64,
+        wifiAssocStaRxBytes         Counter64
     }
 
 wifiAssocStaRssi OBJECT-TYPE
@@ -2425,7 +2430,7 @@ wifiAssocStaPPhyRate OBJECT-TYPE
     ::= { wifiAssocStaEntry 16 }
 
 wifiAssocStaTxBytes OBJECT-TYPE
-    SYNTAX      Unsigned32
+    SYNTAX      Counter64
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
@@ -2433,7 +2438,7 @@ wifiAssocStaTxBytes OBJECT-TYPE
     ::= { wifiAssocStaEntry 17 }
 
 wifiAssocStaRxBytes OBJECT-TYPE
-    SYNTAX      Unsigned32
+    SYNTAX      Counter64
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
