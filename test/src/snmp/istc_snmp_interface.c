@@ -257,20 +257,14 @@ int snmp_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_LIST_st 
         return ISTC_SNMP_ERROR;
     }
     *pStatus = response->errstat;
-    if(status != STAT_SUCCESS || response->errstat != SNMP_ERR_NOERROR)
+    if(status != STAT_SUCCESS || response->errstat != SNMP_ERR_NOERROR|| snmp_expected_variable_varify(response->variables) != 0)
     {
-        istc_log("can not get oid");
+        istc_log("snmpget error\n");
         istc_snmp_print_oid(theoid, theoid_len);
         snmp_free_pdu(response);
         return ISTC_SNMP_ERROR;
     }
-    if(snmp_expected_variable_varify(response->variables) != 0)
-    {
-        istc_log("not expected response\n");
-        istc_snmp_print_oid(theoid, theoid_len);
-        snmp_free_pdu(response);
-        return ISTC_SNMP_ERROR;
-    }
+    
     pdu_list->response = response;
     return ISTC_SNMP_SUCCESS;
 }
