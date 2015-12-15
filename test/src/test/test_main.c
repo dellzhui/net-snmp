@@ -28,8 +28,8 @@ struct oid {
   //{"demoIpAddress.0"},
   //{"DemoIpEntry"},
     //{"ifTable"},
-  //{"clabWIFIAccessPointAssociatedDeviceNumberOfEntries"},
-  {"clabWIFIAccessPointEntry"},
+  {"clabWIFIAccessPointAssociatedDeviceNumberOfEntries.10001"},
+  //{"clabWIFIAccessPointEntry"},
   { NULL }
 };
 
@@ -63,7 +63,7 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
     return 0;
 }
 
-int main1(void)
+int main(void)
 {
     char *oid_name = (char *)oids[0].Name;
     SNMP_AGENT_INFO_st agent_info;
@@ -109,7 +109,7 @@ int main1(void)
         return -1;
     }
     istc_log("parse data success\n");
-    //print_datalist(data_list);
+    print_datalist(data_list);
     istc_snmp_free_datalist(data_list);
 #endif    
     return 0;
