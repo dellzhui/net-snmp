@@ -2055,11 +2055,13 @@ int cmd_handle_ap_get_ssid(cmd_t * this, int argc, char **argv)
         cmd_handle_help(this, argc, argv);
         return -1;
     }
-
+#if 0
     if (istc_wireless_ap_ssid_get(argv[0], ssid, &count) != 0) {
         printf("istc_wireless_ap_ssid_get %s failed\n", argv[0]);
         return -1;
     }
+#endif
+    
 
     int i;
     printf("interface %s configurated SSID list (count %d):\n", argv[0], count);
