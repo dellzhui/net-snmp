@@ -2055,12 +2055,11 @@ int cmd_handle_ap_get_ssid(cmd_t * this, int argc, char **argv)
         cmd_handle_help(this, argc, argv);
         return -1;
     }
-#if 0
+
     if (istc_wireless_ap_ssid_get(argv[0], ssid, &count) != 0) {
         printf("istc_wireless_ap_ssid_get %s failed\n", argv[0]);
         return -1;
     }
-#endif
     
 
     int i;
@@ -4221,7 +4220,7 @@ void usage()
 }
 
 
-int main1(int argc, char *argv[])
+int main_1(int argc, char *argv[])
 {
     unsigned int addr = 0;
     int opt;
@@ -4229,7 +4228,9 @@ int main1(int argc, char *argv[])
     char *script_name = NULL;
     cmd_args_t *cmd_args = NULL;
     int ret;
+#ifndef ISTC_USE_SNMP
     char *msg = "hello world!";
+#endif    
 
     int i;
 
@@ -4274,22 +4275,23 @@ int main1(int argc, char *argv[])
     signal(SIGTERM, cmd_signal_handler);
 
     printf("istc_cli start ...\n");
-
+#ifndef ISTC_USE_SNMP
 	if (istc_link_change_register(ISTC_IFNAME_ALL, link_change_callback, msg) !=
 		0) {
 		printf("register %s link notification failed\n", ISTC_IFNAME_ALL);
 	} else {
 		printf("register %s link notification success\n", ISTC_IFNAME_ALL);
     }
-
+#endif
 
     cmd_init();
 
-
+#ifndef ISTC_USE_SNMP
     if ((ret = istc_async_callback_register(cmd_async_callback)) != 0) {
         printf("register async callback failed\n");
         return -1;
-    }     
+    }
+#endif    
 
     //cmd_show_all(&cmd_root, "");
 
