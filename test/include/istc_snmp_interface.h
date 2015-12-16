@@ -8,6 +8,16 @@ export "C" {
 #include "net-snmp/net-snmp-config.h"
 #include "net-snmp/net-snmp-includes.h"
 
+#define SNMP_ASSERT(x) \
+                do { \
+                    if((x) == 0) \
+                    { \
+                        istc_log("input wrong\n"); \
+                        return (-1); \
+                    } \
+                }while(0)
+
+
 enum
 {
     ISTC_SNMP_ERROR = -1,
@@ -60,13 +70,13 @@ typedef int (*SnmpTableFun)(void *rowreq_ctx, netsnmp_variable_list *var, int co
 
 
 int istc_snmp_init(void);
-int istc_snmp_walk(char *oid_name, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
-int istc_snmp_set(char *oid_name, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_walk(oid *anOID, size_t anOID_len, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_set(oid *anOID, size_t anOID_len, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
 int istc_snmp_print_oid(oid *Oid, int len);
-int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, char *oid_name);
+int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, oid *rootOID, size_t rootOID_len);
 int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
 int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList);
-int istc_snmp_table_parse_data(char *oid_name, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
+int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
 int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
 
 #ifdef __cplusplus
