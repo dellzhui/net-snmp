@@ -75,7 +75,8 @@ static istc_async_desc_t g_istc_async_desc = {
 };
 
 
-
+//#ifndef ISTC_USE_SNMP
+#if 1
 const char *istc_inet_ntoa(unsigned int ip, char *buff, int size)
 {
     *buff = '\0';
@@ -285,8 +286,6 @@ static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
 }
 
 
-
-
 #define SURE_OPEN(sock) \
 	if (((sock) = istc_client_open()) == -1) { DERROR("failed, return\n"); return -1; }
 
@@ -362,7 +361,14 @@ static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
 		h->command = htons(m); \
 		h->length = htons(l); \
 	} while (0)
-
+#else
+#define SURE_OPEN(sock)
+#define SURE_SENDN(sock, buff, size, ret)
+#define SURE_RECVN(sock, buff, size, ret)
+#define SURE_RECVN_TIMEOUT(sock, buff, size, timeout, ret)
+#define SURE_RESP(s, h, c, m, x)
+#define FILL_HEAD(h, c, m, l, s)
+#endif
 
 int istc_interface_ipaddr_get(const char *ifname, unsigned int *ipaddr)
 {
@@ -1568,75 +1574,8 @@ int istc_async_wireless_sta_ssid_disable(const char *ifname, const char *ssid)
 int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
                               int *count)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[2048] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_get_ssid_t *data = (istc_class_ap_get_ssid_t *) (head + 1);
-    int length = 0;
-    int cnt_ret = 0;
-    int cnt = 0;
-
-    SURE_STR(ifname);
-    SURE_PTR(ssid);
-    SURE_PTR(count);
-
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_GET_SSID,
-              sizeof (istc_class_ap_get_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_get_ssid_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_ap_get_ssid_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *pcnt);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * sizeof (istc_ap_ssid_t);
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                istc_ap_ssid_t *ptr = (istc_ap_ssid_t *) buff;
-                for (i = 0; i < cnt; i++, ssid++, ptr++) {
-                    strncpy(ssid->ssid, ptr->ssid, ISTC_SSID_NAME_SIZE);
-                    strncpy(ssid->password, ptr->password, ISTC_SSID_PSWD_SIZE);
-                    ssid->channel = ntohl(ptr->channel);
-                    ssid->encryption = ntohl(ptr->encryption);
-                    ssid->b_hidden = ntohl(ptr->b_hidden);
-                }
-            }
-
-        }
-
-        ret = 0;
-        *count = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    //char *oid_name = "wifiBssSsid";
+    return 0;
 }
 
 
