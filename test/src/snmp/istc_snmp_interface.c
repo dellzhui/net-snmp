@@ -256,7 +256,6 @@ int snmp_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_LIST_st 
         return ISTC_SNMP_ERROR;
     }
     
-    
     pdu_list->response = response;
     return ISTC_SNMP_SUCCESS;
 }
