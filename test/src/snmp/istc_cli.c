@@ -47,7 +47,7 @@ modification history
 #include "istc.h"
 #include "istc_version.h"
 #include "istc_protocol.h"
-
+#include "istc_snmp_interface.h"
 
 
 #define CMD_ARGC_MAX	48
@@ -2087,7 +2087,7 @@ int cmd_handle_ap_get_ssid(cmd_t * this, int argc, char **argv)
             encryption = "?";
         }
 
-        printf("%3d %-32s %-9s %-4d ",
+        printf("%-3d %-32s %-9s %-4d ",
                (i + 1), ssid[i].ssid, encryption, ssid[i].channel);
 
         if (1 == ssid[i].b_hidden) {
@@ -2168,6 +2168,7 @@ int cmd_handle_ap_add_ssid(cmd_t * this, int argc, char **argv)
         /* get encryption */
         len = strlen(argv[3]);
         if (len == 4 && strncmp(argv[3], "open", 4) == 0) {
+            printf("pass\n");
             ssid.encryption = ISTC_WIRELESS_ENCRYPTION_OPEN;
         } else if (len == 3 && strncmp(argv[3], "wpa", 3) == 0) {
             ssid.encryption = ISTC_WIRELESS_ENCRYPTION_WPA;
@@ -4220,7 +4221,7 @@ void usage()
 }
 
 
-int main_1(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
     unsigned int addr = 0;
     int opt;
@@ -4234,7 +4235,8 @@ int main_1(int argc, char *argv[])
 
     int i;
 
-
+    istc_snmp_init();
+    
     while ((opt = getopt(argc, argv, "s:p:S:h")) != -1) {
         switch (opt) {
             case 's':

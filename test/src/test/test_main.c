@@ -65,13 +65,14 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
     return 0;
 }
 
-int main(void)
+int main_1(void)
 {
     SNMP_AGENT_INFO_st agent_info;
     oid anOID[] = {CLABWIFIACCESSPOINTTABLE_OID, 
                             COLUMN_CLABWIFIACCESSPOINTID, 
                             COLUMN_CLABWIFIACCESSPOINTASSOCIATEDDEVICENUMBEROFENTRIES};
     size_t anOID_len = OID_LENGTH(anOID);
+    int rows_num = 0;
     
     istc_snmp_init();
     
@@ -98,7 +99,7 @@ int main(void)
     
 #else
     SNMP_DATA_LIST_st *data_list = NULL;
-    if(istc_snmp_table_parse_data(anOID, anOID_len, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list) != 0)
+    if(istc_snmp_table_parse_data(anOID, anOID_len, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list, &rows_num) != 0)
     {
         istc_log("can not parse data_list\n");
         return -1;

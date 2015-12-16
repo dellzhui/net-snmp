@@ -17,7 +17,7 @@ static int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LI
 
 static int snmp_table_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num);
 
-static int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
+static int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowNum);
 
 static int snmp_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_LIST_st *pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
 
@@ -113,7 +113,7 @@ int snmp_table_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num)
     return ISTC_SNMP_SUCCESS;
 }
 
-int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList)
+int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowNum)
 {
     int rows_num = 0;
     PDU_LIST_st *pdu_list;
@@ -131,6 +131,7 @@ int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID
     SNMP_ASSERT(pPDUList != NULL && pPDUList->response != NULL);
     SNMP_ASSERT(rootOID != NULL && rootOID_len > 0);
     SNMP_ASSERT(fun != NULL && DataLen > 0 && pDataList != NULL);
+    SNMP_ASSERT(pRowNum != NULL);
     
     istc_log("data_len = %d\n", DataLen);
     if(snmp_table_get_rows_num(pPDUList, &rows_num) != 0 || rows_num <= 0)
@@ -191,6 +192,8 @@ int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID
                     break;
                 }
                 index_data[index] = data_tmp->data;
+                data_tmp->row = row;
+                data_tmp->column = column;
             }
             //istc_log("index = %d, row = %d, column = %d\n", index, row, column);
             fun(index_data[index], vars, column);
@@ -204,6 +207,7 @@ int snmp_table_parse_pdulist(PDU_LIST_st *pPDUList, oid *rootOID, size_t rootOID
     if(data_head != NULL && ret == 0)
     {
         *pDataList = data_head;
+        *pRowNum= rows_num;
         istc_log("parse data success\n");
         return ISTC_SNMP_SUCCESS;
     }
@@ -485,7 +489,7 @@ int istc_snmp_walk(oid *anOID, size_t anOID_len, PDU_LIST_st **pdu_list, ISTC_SN
         return ISTC_SNMP_ERROR;
     }
 
-    istc_log("set host:%s", pSnmpSession->peername);
+    istc_log("set host:%s\n", pSnmpSession->peername);
     if(snmp_walk(pSnmpSession, anOID, anOID_len, pdu_list, pStatus) != 0)
     {
         return ISTC_SNMP_ERROR;
@@ -626,13 +630,15 @@ int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo)
     return ISTC_SNMP_SUCCESS;
 }
 
-int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList)
+int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowsNum)
 {
     PDU_LIST_st *pdu_list = NULL;
+    SNMP_DATA_LIST_st *data_list = NULL;
     ISTC_SNMP_RESPONSE_ERRSTAT stat = ISTC_SNMP_ERR_UNKNOWN;
+    int rows_num = 0;
     
-    SNMP_ASSERT(rootOID != NULL && rootOID_len > 0 && fun != NULL && pDataList != NULL);
-    
+    SNMP_ASSERT(rootOID != NULL && rootOID_len > 0 && fun != NULL && pDataList != NULL&& pRowsNum != NULL);
+
     if(istc_snmp_walk(rootOID, rootOID_len, &pdu_list, &stat) != 0 || pdu_list == NULL)
     {
         istc_log("snmpwalk error\n");
@@ -640,12 +646,26 @@ int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fu
     }
     istc_snmp_print_pdulist(pdu_list, rootOID, rootOID_len);
     
-    if(snmp_table_parse_pdulist(pdu_list, rootOID, rootOID_len, fun, DataLen, pDataList) != 0)
+    if(snmp_table_parse_pdulist(pdu_list, rootOID, rootOID_len, fun, DataLen, &data_list, &rows_num) != 0)
     {
         istc_log("can not parse pdulist\n");
         return ISTC_SNMP_ERROR;
     }
+    
     istc_snmp_free_pdulist(pdu_list);
+
+    if(data_list == NULL || rows_num <= 0)
+    {
+        if(data_list != NULL)
+        {
+            istc_snmp_free_datalist(data_list);
+        }
+        istc_log("parse table data error\n");
+        return ISTC_SNMP_ERROR;
+    }
+    istc_log("parse table success, rows_num = %d\n", rows_num);
+    *pDataList = data_list;
+    *pRowsNum = rows_num;
     return ISTC_SNMP_SUCCESS;
 }
 

@@ -52,6 +52,8 @@ typedef struct tagSNMP_DATA
 {
     struct tagSNMP_DATA *next;
     void *data;
+    int row;
+    int column;
 }SNMP_DATA_LIST_st;
 
 typedef struct tagPDU_LIST
@@ -76,7 +78,7 @@ int istc_snmp_print_oid(oid *Oid, int len);
 int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, oid *rootOID, size_t rootOID_len);
 int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
 int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList);
-int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList);
+int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowsNum);
 int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
 
 #ifdef __cplusplus

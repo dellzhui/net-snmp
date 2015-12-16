@@ -80,7 +80,7 @@ typedef struct wifiBssTable_data_s {
         /*
          * wifiBssId(1)/PhysAddress/ASN_OCTET_STR/char(char)//L/A/w/e/r/d/H
          */
-   char   wifiBssId[65535];
+   char   wifiBssId[32];
 size_t      wifiBssId_len; /* # of char elements, not bytes */
     
         /*
