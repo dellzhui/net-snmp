@@ -250,8 +250,8 @@ int snmp_get(netsnmp_session * ss, oid * theoid, size_t theoid_len, PDU_LIST_st 
         response->variables->type == SNMP_NOSUCHOBJECT || 
         response->variables->type == SNMP_NOSUCHINSTANCE)
     {
-        istc_log("snmpget error\n");
         istc_snmp_print_oid(theoid, theoid_len);
+        istc_log("snmpget error\n");
         snmp_free_pdu(response);
         return ISTC_SNMP_ERROR;
     }
