@@ -2,11 +2,13 @@
 #include "net-snmp/net-snmp-config.h"
 #include "net-snmp/net-snmp-includes.h"
 #include "istc_snmp_interface.h"
+#include "istc_log.h"
 #include "demoIpTable.h"
 #include "demoIpTable_interface.h"
 #include "clabWIFIAccessPointTable.h"
 #include "clabWIFIAccessPointTable_interface.h"
-#include "istc_log.h"
+#include "wifiBssTable.h"
+
 
 struct host {
   const char *name;
@@ -65,9 +67,11 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
 
 int main(void)
 {
-    char *oid_name = (char *)oids[0].Name;
     SNMP_AGENT_INFO_st agent_info;
-    SNMP_DATA_LIST_st *data_list = NULL;
+    oid anOID[] = {CLABWIFIACCESSPOINTTABLE_OID, 
+                            COLUMN_CLABWIFIACCESSPOINTID, 
+                            COLUMN_CLABWIFIACCESSPOINTASSOCIATEDDEVICENUMBEROFENTRIES};
+    size_t anOID_len = OID_LENGTH(anOID);
     
     istc_snmp_init();
     
@@ -79,7 +83,7 @@ int main(void)
 #if 0    
     PDU_LIST_st *pdu_list = NULL;
     ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
-    if(istc_snmp_walk(oid_name, &pdu_list, &stat) != 0 || pdu_list == NULL)
+    if(istc_snmp_walk(anOID, anOID_len, &pdu_list, &stat) != 0 || pdu_list == NULL)
     {
         printf("%s %d:snmpwalk error\n", __FUNCTION__, __LINE__);
         return -1;
@@ -89,21 +93,12 @@ int main(void)
      //_demoIpTable_set_column(&ctx, response->variables, COLUMN_DEMOIPADDRESS);
      //printf("%s %d:%s\n", __FUNCTION__, __LINE__, ctx.data.demoIpAddress);
 
-    istc_snmp_print_pdulist(pdu_list, oid_name); 
+    istc_snmp_print_pdulist(pdu_list, anOID, anOID_len); 
     istc_snmp_free_pdulist(pdu_list); 
-
     
-    if(0 && strcmp(oid_name, "demoIpAddress.0") == 0)
-    {
-        if(istc_snmp_set(oid_name, 's', "12.34.56.78", &stat) != 0)
-        {
-            printf("%s %d:snmpset error\n", __FUNCTION__, __LINE__);
-            return -1;
-        }
-        printf("%s %d:stat = %d\n", __FUNCTION__, __LINE__, stat);
-    }
 #else
-    if(istc_snmp_table_parse_data(oid_name, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list) != 0)
+    SNMP_DATA_LIST_st *data_list = NULL;
+    if(istc_snmp_table_parse_data(anOID, anOID_len, (SnmpTableFun)_clabWIFIAccessPointTable_set_column, sizeof(clabWIFIAccessPointTable_rowreq_ctx), &data_list) != 0)
     {
         istc_log("can not parse data_list\n");
         return -1;
