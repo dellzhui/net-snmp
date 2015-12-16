@@ -33,6 +33,7 @@ modification history
 #ifndef __ISTC_H
 #define __ISTC_H
 
+#define ISTC_USE_SNMP
 /* the interface name (e.g. eth0, wlan0 etc) max size */
 #define ISTC_IFNAME_SIZE		16  /*(IF_NAMESIZE) */
 
