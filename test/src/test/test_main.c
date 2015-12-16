@@ -28,8 +28,8 @@ struct oid {
   //{"demoIpAddress.0"},
   //{"DemoIpEntry"},
     //{"ifTable"},
-  {"clabWIFIAccessPointAssociatedDeviceNumberOfEntries.10001"},
-  //{"clabWIFIAccessPointEntry"},
+  //{"clabWIFIAccessPointAssociatedDeviceNumberOfEntries.10001"},
+  {"clabWIFIAccessPointEntry"},
   { NULL }
 };
 
