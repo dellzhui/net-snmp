@@ -37,17 +37,17 @@ int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st *
         if(((*head) = (SNMP_DATA_LIST_st *)calloc(1, sizeof(SNMP_DATA_LIST_st))) == NULL)
         {
             istc_log("can not calloc for data_lis node\n");
-            return -1;
+            return ISTC_SNMP_ERROR;
         }
         if(((*head)->data = (void *)calloc(1, DataLen)) == NULL)
         {
             istc_log("can not calloc for head data\n");
             free((*head));
             (*head) = NULL;
-            return -1;
+            return ISTC_SNMP_ERROR;
         }
         *pDataList = *head;
-        return 0;
+        return ISTC_SNMP_SUCCESS;
     }
     
     data_list = (*head);
@@ -59,7 +59,7 @@ int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st *
     if((data_list->next = (SNMP_DATA_LIST_st *)calloc(1, sizeof(SNMP_DATA_LIST_st))) == NULL)
     {
         istc_log("can not calloc for data_lis node\n");
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     data_list = data_list->next;
     if((data_list->data = (void *)calloc(1, DataLen)) == NULL)
@@ -67,10 +67,10 @@ int snmp_add_datalist(SNMP_DATA_LIST_st **head, int DataLen, SNMP_DATA_LIST_st *
         istc_log("can not calloc for data_list data\n");
         free(data_list);
         data_list = NULL;
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
     *pDataList = data_list;
-    return 0;
+    return ISTC_SNMP_SUCCESS;
 }
 
 int snmp_table_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num)
@@ -507,7 +507,7 @@ int istc_snmp_set(oid *anOID, size_t anOID_len, char type, char *values, ISTC_SN
     if(strchr(types, type) == NULL)
     {
         istc_log("unsupported type:%c", type);
-        return -1;
+        return ISTC_SNMP_ERROR;
     }
 
     if(pSnmpSession == NULL)
