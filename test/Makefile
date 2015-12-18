@@ -63,8 +63,4 @@ $(OBJS_DIR)/%.d: %.c
 	rm -f $(OBJS_DIR)/$(notdir $@).$$$$
 
 clean:
-	@rm -rf $(LIBS_DIR)/* $(OBJS_DIR)/*.o $(TARGETS)
-	
-dclean:
 	@rm -rf $(LIBS_DIR)/* $(OBJS_DIR)/* $(TARGETS)
-
