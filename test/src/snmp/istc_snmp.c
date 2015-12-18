@@ -1598,8 +1598,12 @@ int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
     
     oid clabWIFISSIDIfName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
     size_t clabWIFISSIDIfName_len = OID_LENGTH(clabWIFISSIDIfName);
+    
     oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
     size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
+    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE, 0};
+    size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
+    
     oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
     size_t wifiBssWpaPreSharedKey_len = OID_LENGTH(wifiBssWpaPreSharedKey);
     
@@ -1611,10 +1615,10 @@ int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
     
     if(istc_snmp_table_parse_data(clabWIFISSIDIfName, clabWIFISSIDIfName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
-        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
+        istc_log("can not parse clabWIFISSIDIfName\n");
         return -1;
     }
-    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
+    istc_log("parse clabWIFISSIDIfName success\n");
     data_list= data_head; 
     while(data_list != NULL)
     {
@@ -1636,16 +1640,27 @@ int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
     }
 
     wifiBssSsid[wifiBssSsid_len - 1] = row;
+    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
     wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
     
     if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
-        istc_log("can not parse wifiBssTable_rowreq_ctx\n");
+        istc_log("can not parse wifiBssSsid\n");
         return -1;
     }
-    istc_log("parse wifiBssTable_rowreq_ctx success\n");
+    istc_log("parse wifiBssSsid success\n");
     bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
     strncpy(ap_ssid.ssid, bss_ctx->data.wifiBssSsid, sizeof(ap_ssid.ssid) - 1);
+    istc_snmp_free_datalist(data_head);
+    data_head = NULL;
+
+    if(istc_snmp_table_parse_data(wifiBssSecurityMode, wifiBssSecurityMode_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSecurityMode\n");
+        return -1;
+    }
+    istc_log("parse wifiBssSecurityMode success\n");
+    bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
     switch(bss_ctx->data.wifiBssSecurityMode)
     {
     case 0:
@@ -1677,6 +1692,7 @@ int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
         istc_log("encryption is not open or unknown, we will return\n");
         return 0;
     }
+    
     if(istc_snmp_table_parse_data(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, (SnmpTableFun)_wifiBssWpaTable_set_column, sizeof(wifiBssWpaTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
         istc_log("can not parse wifiBssWpaTable_rowreq_ctx\n");
@@ -1780,9 +1796,11 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
     
     oid clabWIFISSIDIfName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
     size_t clabWIFISSIDIfName_len = OID_LENGTH(clabWIFISSIDIfName);
-    
-    oid bssSsidOID[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
-    size_t bssSsidOID_len = OID_LENGTH(bssSsidOID);
+
+    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
+    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
+    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
+    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
     oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE, 0};
     size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
     oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
@@ -1808,7 +1826,7 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
         if(strcmp(ifname, ssid_ctx->data.clabWIFISSIDName) == 0)
         {
             row = data_list->row;
-            istc_log("find success, ifname = %s\n", ifname);
+            istc_log("find success, ifname = %s, row = %d\n", ifname, row);
             break;
         }
         data_list = data_list->next;
@@ -1843,22 +1861,24 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
             istc_log("unkonwn security mode:%d\n", ssid->encryption);
             return -1;
     }
-    
-    bssSsidOID[bssSsidOID_len - 1] = row;
+
+    wifiBssEnable[wifiBssEnable_len - 1] = row;
+    wifiBssSsid[wifiBssSsid_len - 1] = row;
     wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
     wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
     
-    if(istc_snmp_set(bssSsidOID, bssSsidOID_len, 's', (char *)ssid->ssid, &stat) != 0)
+    if(istc_snmp_set(wifiBssSsid, wifiBssSsid_len, 's', (char *)ssid->ssid, &stat) != 0)
     {
         istc_log("can not set ssid name, ifname = %s\n", ifname);
         return -1;
     }
+    istc_log("set wifiBssSsid success\n");
     if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, 'i', (char *)security_mode, &stat) != 0)
     {
         istc_log("can not set ssid security mode, ifname = %s\n", ifname);
         return -1;
     }
-
+    istc_log("set wifiBssSecurityMode success\n");
     if(*security_mode != '0')
     {
         if(ssid->password[0] == 0 || strlen(ssid->password) < 8)
@@ -1871,7 +1891,15 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
             istc_log("can not set password\n");
             return -1;
         }
+        istc_log("set wifiBssWpaPreSharedKey success\n");
     }
+
+    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "1", &stat) != 0)
+    {
+        istc_log("can not set bss enable, ifname = %s, ssid_name = %s\n", ifname, ssid->ssid);
+        return -1;
+    }
+    istc_log("set wifiBssEnable success\n");
     
     istc_log("ssid add success\n");
     return 0;
@@ -2002,45 +2030,80 @@ int istc_wireless_ap_ssid_enable(const char *ifname, const char *ssid)
 
 int istc_wireless_ap_ssid_disable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_disable_ssid_t *data =
-        (istc_class_ap_disable_ssid_t *) (head + 1);
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
+    wifiBssTable_rowreq_ctx *bss_ctx = NULL;
+    int row = 0;
+    istc_ap_ssid_t ap_ssid;
+    int cnt = 0;
+    ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
+    
+    oid clabWIFISSIDIfName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
+    size_t clabWIFISSIDIfName_len = OID_LENGTH(clabWIFISSIDIfName);
 
+    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
+    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
+    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
+    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
+    
+    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL && *ssid != 0);
 
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_DISABLE_SSID,
-              sizeof (istc_class_ap_disable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_disable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    istc_log("ifname = %s\n", ifname);
+    memset(&ap_ssid, 0, sizeof(ap_ssid));
+    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
+    
+    if(istc_snmp_table_parse_data(clabWIFISSIDIfName, clabWIFISSIDIfName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
+        return -1;
+    }
+    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
+    data_list= data_head; 
+    while(data_list != NULL)
+    {
+        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
+        if(strcmp(ifname, ssid_ctx->data.clabWIFISSIDName) == 0)
+        {
+            row = data_list->row;
+            istc_log("find success, ifname = %s\n", ifname);
+            break;
+        }
+        data_list = data_list->next;
+    }
+    istc_snmp_free_datalist(data_head);
+    data_head = NULL;
+    if(data_list == NULL)
+    {
+        istc_log("can not get bssid, ifname = %s\n", ifname);
+        return -1;
     }
 
-    istc_client_close(sock);
+    wifiBssSsid[wifiBssSsid_len - 1] = row;
+    wifiBssEnable[wifiBssEnable_len - 1] = row;
 
-    return ret;
+    if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssTable_rowreq_ctx\n");
+        return -1;
+    }
+    istc_log("parse wifiBssTable_rowreq_ctx success\n");
+    bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
+    if(strcmp(ssid, bss_ctx->data.wifiBssSsid) != 0)
+    {
+        istc_log("ifname:%s, ssid_name:%s, not match\n", ifname, ssid);
+        istc_snmp_free_datalist(data_head);
+        return -1;
+    }
+    istc_snmp_free_datalist(data_head);
+    
+    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "2", &stat) != 0)
+    {
+        istc_log("can not set bss enable, ifname = %s, ssid = %s\n", ifname, ssid);
+        return -1;
+    }
 
+    istc_log("ifname:%s, ssid:%s, enable success\n", ifname, ssid);
+    return 0;
 }
 
 
