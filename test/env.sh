@@ -1,4 +1,6 @@
 #!/bin/sh
 
-export LD_LIBRARY_PATH=/home/work/opensource/Git/net-snmp/out/lib:${LD_LIBRARY_PATH}
+CURDIR=`pwd`
+
+export LD_LIBRARY_PATH=${CURDIR}/lib:${CURDIR}/../out/lib:${LD_LIBRARY_PATH}
 
