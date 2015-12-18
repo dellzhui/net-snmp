@@ -1,13 +1,6 @@
 #include <stdio.h>
-#include "net-snmp/net-snmp-config.h"
-#include "net-snmp/net-snmp-includes.h"
 #include "istc_snmp_interface.h"
 #include "istc_log.h"
-#include "demoIpTable.h"
-#include "demoIpTable_interface.h"
-#include "clabWIFIAccessPointTable.h"
-#include "clabWIFIAccessPointTable_interface.h"
-#include "wifiBssTable.h"
 
 
 struct host {
