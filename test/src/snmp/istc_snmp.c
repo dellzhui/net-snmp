@@ -1848,6 +1848,17 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
     wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
     wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
     
+    if(istc_snmp_set(bssSsidOID, bssSsidOID_len, 's', (char *)ssid->ssid, &stat) != 0)
+    {
+        istc_log("can not set ssid name, ifname = %s\n", ifname);
+        return -1;
+    }
+    if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, 'i', (char *)security_mode, &stat) != 0)
+    {
+        istc_log("can not set ssid security mode, ifname = %s\n", ifname);
+        return -1;
+    }
+
     if(*security_mode != '0')
     {
         if(ssid->password[0] == 0 || strlen(ssid->password) < 8)
@@ -1861,18 +1872,7 @@ int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
             return -1;
         }
     }
-
-    if(istc_snmp_set(bssSsidOID, bssSsidOID_len, 's', (char *)ssid->ssid, &stat) != 0)
-    {
-        istc_log("can not set ssid name, ifname = %s\n", ifname);
-        return -1;
-    }
-    if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, 'i', (char *)security_mode, &stat) != 0)
-    {
-        istc_log("can not set ssid security mode, ifname = %s\n", ifname);
-        return -1;
-    }
-
+    
     istc_log("ssid add success\n");
     return 0;
 }
