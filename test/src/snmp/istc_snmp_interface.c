@@ -518,9 +518,10 @@ int istc_snmp_set(oid *anOID, size_t anOID_len, char type, char *values, ISTC_SN
 
     *pStatus = ISTC_SNMP_ERR_UNKNOWN;
 
-    istc_log("set host %s\n", pSnmpSession->peername);
+    istc_snmp_print_oid(anOID, anOID_len);
+    istc_log("set host %s, type = %c, values = %s\n", pSnmpSession->peername, type, values);
     
-    if(snmp_set(pSnmpSession, anOID, anOID_len, type, values, pStatus) != 0)
+    if(snmp_set(pSnmpSession, anOID, anOID_len, type, values, pStatus) != 0 || *pStatus != ISTC_SNMP_ERR_NOERROR)
     {
         return ISTC_SNMP_ERROR;
     }
