@@ -323,6 +323,7 @@ int snmp_walk(netsnmp_session * pSnmpSession, oid *rootOID, int rootOID_len, PDU
                             first_get = 1;
                             if((vars->name_length < rootOID_len) || memcmp(rootOID, vars->name, rootOID_len* sizeof(oid)) != 0)
                             {
+                                istc_snmp_print_oid(vars->name, vars->name_length);
                                 istc_log("first oid is not match root oid, we will exec snmpget\n");
                                 running = 0;
                                 b_need_get = 1;
