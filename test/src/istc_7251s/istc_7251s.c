@@ -46,21 +46,9 @@ modification history
 
 #include "istc.h"
 #include "istc_protocol.h"
-
-#include "net-snmp/net-snmp-config.h"
-#include "net-snmp/net-snmp-includes.h"
-#include "istc_snmp_interface.h"
 #include "istc_log.h"
-#include "demoIpTable.h"
-#include "demoIpTable_interface.h"
-#include "clabWIFIAccessPointTable.h"
-#include "clabWIFIAccessPointTable_interface.h"
-#include "wifiBssTable.h"
-#include "wifiBssTable_interface.h"
-#include "clabWIFISSIDTable.h"
-#include "clabWIFISSIDTable_interface.h"
-#include "wifiBssWpaTable.h"
-#include "wifiBssWpaTable_interface.h"
+
+#include "istc_snmp_interface.h"
 
 
 #define ISTC_TIMEOUT_DEFAULT	(6)
