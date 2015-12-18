@@ -14,6 +14,7 @@ export "C" {
 #include "wifiBssWpaTable_interface.h"
 #include "wifiBssTable_interface.h"
 
+
 #define SNMP_ASSERT(x) \
                 do { \
                     if((x) == 0) \
