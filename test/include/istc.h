@@ -29,7 +29,6 @@ modification history
 -------------------------------------------------------------------------------
 01a,18Jun2014,xiongdb@inspur.com           written
 */
-
 #ifndef __ISTC_H
 #define __ISTC_H
 
