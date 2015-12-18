@@ -29,7 +29,6 @@ modification history
 -------------------------------------------------------------------------------
 01a,19Jun2014,xiongdb@inspur.com           written
 */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +46,7 @@ modification history
 #include "istc.h"
 #include "istc_version.h"
 #include "istc_protocol.h"
-#include "istc_snmp_interface.h"
+#include "snmp_interface.h"
 
 
 #define CMD_ARGC_MAX	48
