@@ -8,6 +8,12 @@ export "C" {
 #include "net-snmp/net-snmp-config.h"
 #include "net-snmp/net-snmp-includes.h"
 
+#include "demoIpTable_interface.h"
+#include "clabWIFIAccessPointTable_interface.h"
+#include "clabWIFISSIDTable_interface.h"
+#include "wifiBssWpaTable_interface.h"
+#include "wifiBssTable_interface.h"
+
 #define SNMP_ASSERT(x) \
                 do { \
                     if((x) == 0) \
