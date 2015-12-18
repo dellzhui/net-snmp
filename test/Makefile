@@ -1,35 +1,63 @@
-
-
 CURDIR = $(shell pwd)
 NET_SNMP_BIN_PATH=${CURDIR}/../out/bin
 
 CC=gcc
 
 SRCS_ROOT_DIR = $(CURDIR)/src
-SRCS_DIR = $(shell find $(SRCS_ROOT_DIR) -type d)
+SRCS_ALL_DIR = $(shell find $(SRCS_ROOT_DIR) -type d)
+SRCS_LIBSNMP_DIR = $(SRCS_ROOT_DIR)/snmp
 OBJS_DIR = objs
+LIBS_DIR = lib
 
-SRCS0 = $(shell find $(SRCS_ROOT_DIR) -name *.c -type f)
-SRCS = $(notdir $(SRCS0))
-OBJS0 = $(SRCS:.c=.o)
-OBJS = $(addprefix $(OBJS_DIR)/,$(OBJS0))
+SRCS_TEST = test_main.c
+SRCS_ISTC_CLI = istc_cli.c
+SRCS_LIBISTC_7251S = istc_7251s.c istc_error.c
+SRCS_LIBSNMP = $(notdir $(shell find $(SRCS_LIBSNMP_DIR) -name *.c -type f))
 
-vpath %.c $(SRCS_DIR)
+OBJS_TEST = $(addprefix $(OBJS_DIR)/,$(SRCS_TEST:.c=.o))
+OBJS_LIBSNMP = $(addprefix $(OBJS_DIR)/,$(SRCS_LIBSNMP:.c=.o))
+OBJS_LIBISTC_7251S = $(addprefix $(OBJS_DIR)/,$(SRCS_LIBISTC_7251S:.c=.o))
+OBJS_ISTC_CLI = $(addprefix $(OBJS_DIR)/,$(SRCS_ISTC_CLI:.c=.o))
 
-TARGETS=asyncapp
+
+TEST = test
+ISTC_CLI = istc_cli
+LIBISTC_7251S = $(LIBS_DIR)/libistc_7251s.so
+LIBSNMP = $(LIBS_DIR)/libsnmp.so
+TARGETS = $(TEST) $(ISTC_CLI) $(LIBISTC_7251S) $(LIBSNMP)
 
 CFLAGS=-I./include -Werror -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
 BUILDLIBS= -lpthread `${NET_SNMP_BIN_PATH}/net-snmp-config --libs`
 DLFLAGS=-fPIC -shared
 
+vpath %.c $(SRCS_ALL_DIR)
+
 all: clean $(TARGETS)
 
-asyncapp: $(OBJS_DIR) $(OBJS)
-	@$(CC) -o $@ $(OBJS) $(BUILDLIBS)
+$(TEST): $(OBJS_DIR) $(OBJS_TEST) $(LIBSNMP)
+	@echo "building test"
+	@$(CC) -o $@ $(OBJS_TEST) $(BUILDLIBS) -L$(LIBS_DIR) -lsnmp
+
+$(ISTC_CLI): $(OBJS_DIR) $(OBJS_ISTC_CLI) $(LIBSNMP) $(LIBISTC_7251S)
+	@echo "building istc_cli"
+	@$(CC) -o $@ $(OBJS_ISTC_CLI) $(BUILDLIBS) -L$(LIBS_DIR) -listc_7251s -lsnmp
+
+$(LIBISTC_7251S): $(LIBS_DIR) $(OBJS_DIR) $(OBJS_LIBISTC_7251S)
+	@echo "building libistc_7251s.so"
+	@$(CC) -o $@ $(OBJS_LIBISTC_7251S) $(DLFLAGS)
+
+$(LIBSNMP): $(LIBS_DIR) $(OBJS_DIR) $(OBJS_LIBSNMP)
+	@echo "building libsnmp.so"
+	@$(CC) -o $@ $(OBJS_LIBSNMP) $(DLFLAGS)
 
 $(OBJS_DIR)/%.o: %.c
 	@echo "compiling $(notdir $^)"
 	@$(CC) -o $(OBJS_DIR)/$(notdir $@) -c $^ $(CFLAGS)
+
+$(LIBS_DIR):
+	@if [ ! -d $@ ];then\
+		mkdir $@;\
+	fi
 
 $(OBJS_DIR): 
 	@if [ ! -d $@ ];then\
@@ -37,5 +65,5 @@ $(OBJS_DIR):
 	fi
 
 clean:
-	@rm -rf $(OBJS) $(TARGETS)
+	@rm -rf $(LIBS_DIR) $(OBJS_DIR) $(TARGETS)
 
