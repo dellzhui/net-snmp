@@ -16,24 +16,25 @@ struct host {
 } hosts[] = {
   { "192.168.0.1",		"public" },
   //{"localhost", "public"},
-  //{"192.168.172.124", "public"},
   { NULL }
 };
 
+#if 0
 struct oid {
   const char *Name;
   oid Oid[MAX_OID_LEN];
   int OidLen;
 } oids[] = {
-  //{ "system" },
+  { "system" },
   //{"sysName"},
   //{"demoIpAddress.0"},
   //{"DemoIpEntry"},
     //{"ifTable"},
-  {"clabWIFIAccessPointAssociatedDeviceNumberOfEntries.10009"},
+  //{"clabWIFIAccessPointAssociatedDeviceNumberOfEntries.10009"},
   //{"clabWIFIAccessPointEntry"},
   { NULL }
 };
+#endif
 
 int print_datalist(SNMP_DATA_LIST_st *pDataList)
 {
