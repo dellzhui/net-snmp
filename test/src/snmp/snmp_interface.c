@@ -1,6 +1,6 @@
 #include "net-snmp/net-snmp-config.h"
 #include "net-snmp/net-snmp-includes.h"
-#include "istc_snmp_interface.h"
+#include "snmp_interface.h"
 #include "istc_log.h"
 #include <assert.h>
 
