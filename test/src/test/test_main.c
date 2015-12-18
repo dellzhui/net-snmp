@@ -65,7 +65,7 @@ int print_datalist(SNMP_DATA_LIST_st *pDataList)
     return 0;
 }
 
-int main_1(void)
+int main(void)
 {
     SNMP_AGENT_INFO_st agent_info;
     oid anOID[] = {CLABWIFIACCESSPOINTTABLE_OID, 
