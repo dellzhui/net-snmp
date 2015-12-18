@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "istc_snmp_interface.h"
+#include "snmp_interface.h"
 #include "istc_log.h"
 
 
