@@ -37,10 +37,11 @@ if [ $? -ne 0 ];then
     exit
 fi
 
+DATE=`date +%Y-%m-%d_%H%M%S`
 if [ ! -z ${INF} ];then
 	git commit -m "$2" ${FILES}
 else
-	git commit -m "GD update" ${FILES}
+	git commit -m "GD update ${DATE}" ${FILES}
 fi
 
 if [ $? -ne 0 ];then

@@ -10,8 +10,9 @@ fi
 echo "commit list:"
 echo "${RESULT}"
 
+DATE=`date +%Y-%m-%d_%H%M%S`
 for i in `git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'`;do
-    git commit -m "update" $i
+    git commit -m "GC update ${DATE}" $i
 done
 
 git push
