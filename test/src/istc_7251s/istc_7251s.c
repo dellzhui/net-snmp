@@ -48,7 +48,7 @@ modification history
 #include "istc_protocol.h"
 #include "istc_log.h"
 
-#include "istc_snmp_interface.h"
+#include "snmp_interface.h"
 
 
 #define ISTC_TIMEOUT_DEFAULT	(6)
