@@ -117,7 +117,8 @@ win32/lib
 bak
 out
 test/asyncapp
-test/lib
-test/objs
+test/lib/*
+test/objs/*
+test/deps/*
 test/test
 test/istc_cli
