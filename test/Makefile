@@ -8,7 +8,7 @@ SRCS_ALL_DIR = $(shell find $(SRCS_ROOT_DIR) -type d)
 SRCS_LIBSNMP_DIR = $(SRCS_ROOT_DIR)/snmp
 OBJS_DIR = objs
 LIBS_DIR = lib
-DIRS_ALL = $(OBJS_DIR) $(LIBS_DIR)
+DEPS_DIR = deps
 
 SRCS_ALL = $(notdir $(shell find $(SRCS_ROOT_DIR) -name *.c -type f))
 SRCS_TEST = test_main.c
@@ -51,22 +51,21 @@ $(LIBSNMP): $(OBJS_LIBSNMP)
 	@echo "building libsnmp.so"
 	@$(CC) -o $@ $(OBJS_LIBSNMP) $(DLFLAGS)
 
-$(DIRS_ALL):
-	mkdir $@
 
-sinclude $(addprefix $(OBJS_DIR)/,$(SRCS_ALL:.c=.d))
-
-	
-$(OBJS_DIR)/%.d: %.c
-	@set -e; \
-	rm -f $@; \
-	$(CC) -MM $(CFLAGS) $< > $@.$$$$; \
-	sed 's,\($*\)\.o[ :]*,$(OBJS_DIR)/\1.o $@ : ,g' < $@.$$$$ > $@; \
-	rm -f $@.$$$$
+ifneq ($(MAKECMDGOALS), clean)
+sinclude $(addprefix $(DEPS_DIR)/,$(SRCS_ALL:.c=.d))
+endif
 
 $(OBJS_DIR)/%.o: %.c
 	@echo "compiling $(notdir $(filter %.c, $^))"
-	@$(CC) -o $@ -c $< $(CFLAGS)
+	@$(CC) -o $@ -c $(filter %.c, $^) $(CFLAGS)
 	
+$(DEPS_DIR)/%.d: %.c
+	@set -e; \
+	rm -f $@; \
+	$(CC) -E -MM $(CFLAGS) $(filter %.c, $^) > $@.$$$$; \
+	sed 's,\(.*\)\.o[ :]*,$(OBJS_DIR)/\1.o $@ : ,g' < $@.$$$$ > $@; \
+	rm -f $@.$$$$
+
 clean:
-	@rm -rf $(LIBS_DIR)/* $(OBJS_DIR)/* $(TARGETS)
+	@rm -rf $(TARGETS) $(LIBS_DIR)/* $(OBJS_DIR)/* $(DEPS_DIR)/*
