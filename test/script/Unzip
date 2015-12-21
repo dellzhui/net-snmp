@@ -1,0 +1,44 @@
+#!/bin/sh
+
+if [ $# -ne 1 ];then
+	unzip
+	exit 0
+fi
+
+file=$1
+dir=${file%.zip*}
+
+INPUT=`unzip -l $1 | grep [0-2][0-9]:[0-5][0-9] | awk '{print $4}' | awk -F / '{print $1}'`
+
+if [ $? -ne 0 ];then
+	echo "$1 is not a zip file"
+	exit 1
+fi
+
+lastpara=
+COUNT=0
+
+for i in ${INPUT};do
+	if [ "${lastpara}" != "${i}" ];then
+		let COUNT++
+		lastpara=${i}
+	fi
+
+	if [ ${COUNT} -gt 1 ];then
+		mkdir ${dir}
+		unzip ${file} -d ${dir}
+		exit 0
+	fi
+done
+
+if [ ${COUNT} -eq 1 ];then
+	if [ "${dir}" = "${lastpara}" ];then
+		unzip ${file}
+		exit 0
+	fi
+	mkdir ${dir}
+	unzip ${file} -d ${dir}
+	exit 0
+fi
+exit 1
+	
