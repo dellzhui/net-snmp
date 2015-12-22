@@ -1,0 +1,14 @@
+#! /bin/sh
+
+if [ $# -lt 0 ];then
+	echo "invalid para"
+	exit
+fi
+
+for i in `route -n | grep "^0.0.0.0*" | awk '{print $NF}'`; do
+	route delete default dev ${i}
+	echo "delete defaule route dev $i"
+done
+
+route add default gw 192.168.229.2
+echo "add default route gw 192.168.229.2"
