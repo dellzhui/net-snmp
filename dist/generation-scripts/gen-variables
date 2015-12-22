@@ -1,9 +1,9 @@
 #
 # common variables used by configure scripts
 #
-SED="/bin/sed"
+SED="/usr/bin/sed"
 CPP="gcc -E"
-GREP="/bin/grep"
+GREP="/usr/bin/grep"
 PARTIALTARGETFLAGS="-Ulinux -Dlinux=linux"
 NETSNMP_SYSTEM_INCLUDE_FILE="net-snmp/system/linux.h"
 
