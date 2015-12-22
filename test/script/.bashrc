@@ -7,7 +7,7 @@
 #alias mv='mv -i'
 alias Cl='clear'
 alias CL='clear'
-alias lla='ll -a'
+alias lla='ll -A'
 alias Ack='ack -w'
 alias reboot='ls'
 alias ping='ping -c 5'
