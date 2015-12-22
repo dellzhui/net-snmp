@@ -10,5 +10,6 @@ fi
 PATH=$PATH:$HOME/bin
 PATH=$PATH:/home/work/opensource/Git/net-snmp/out/bin/
 PATH=$PATH:/home/work/opensource/Git/net-snmp/out/sbin/
+PATH=$PATH:/home/work/opensource/Git/net-snmp/test/script
 
 export PATH
