@@ -78,7 +78,7 @@ char           *end_name = NULL;
 
 static int print_oid(oid *Oid, int len)
 {
-    return 0;
+    //return 0;
     oid *oids = Oid;
     
     if(Oid == NULL || len  <= 0)
@@ -328,8 +328,7 @@ main(int argc, char *argv[])
          */
         pdu = snmp_pdu_create(SNMP_MSG_GETNEXT);
         snmp_add_null_var(pdu, name, name_length);
-        print_oid(name, name_length);
-        printf("%s %d:create\n", __FUNCTION__, __LINE__);
+        //printf("%s %d:create\n", __FUNCTION__, __LINE__);
         /*
          * do the request 
          */
@@ -354,12 +353,14 @@ main(int argc, char *argv[])
                         continue;
                     }
                     numprinted++;
-                    printf("%s %d:numprinted = %d\n", __FUNCTION__, __LINE__, numprinted);
+                    print_oid(vars->name, vars->name_length);
+                    //printf("%s %d:numprinted = %d\n", __FUNCTION__, __LINE__, numprinted);
                     if (netsnmp_ds_get_boolean(NETSNMP_DS_APPLICATION_ID, NETSNMP_DS_WALK_TIME_RESULTS_SINGLE))
                         fprintf(stdout, "%f s: ",  
                                 (double) (tv_b.tv_usec - tv_a.tv_usec)/1000000 +
                                 (double) (tv_b.tv_sec - tv_a.tv_sec));
                     print_variable(vars->name, vars->name_length, vars);
+                    printf("\n");
                     if ((vars->type != SNMP_ENDOFMIBVIEW) &&
                         (vars->type != SNMP_NOSUCHOBJECT) &&
                         (vars->type != SNMP_NOSUCHINSTANCE)) {
