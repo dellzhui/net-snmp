@@ -27,9 +27,9 @@ LIBISTC_7251S = $(LIBS_DIR)/libistc_7251s.so
 LIBSNMP = $(LIBS_DIR)/libsnmp.so
 TARGETS = $(LIBSNMP) $(LIBISTC_7251S) $(TEST) $(ISTC_CLI) 
 
-CFLAGS = -I./include -Werror -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
+CFLAGS = -fPIC -I./include -Werror -Wall -g `${NET_SNMP_BIN_PATH}/net-snmp-config --cflags`
 BUILDLIBS = -lpthread `${NET_SNMP_BIN_PATH}/net-snmp-config --libs`
-DLFLAGS = -fPIC -shared
+DLFLAGS = -shared
 
 vpath %.c $(SRCS_ALL_DIR)
 
