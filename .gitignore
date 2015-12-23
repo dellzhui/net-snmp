@@ -122,3 +122,12 @@ test/objs/*
 test/deps/*
 test/test
 test/istc_cli
+perl/ASN/MYMETA.json
+perl/MYMETA.json
+perl/OID/MYMETA.json
+perl/SNMP/MYMETA.json
+perl/TrapReceiver/MYMETA.json
+perl/agent/MYMETA.json
+perl/agent/Support/MYMETA.json
+perl/agent/default_store/MYMETA.json
+perl/default_store/MYMETA.json
