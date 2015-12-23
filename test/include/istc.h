@@ -646,14 +646,14 @@ const char *istc_errstr(int err);
 /* the following pragma instruction to avoid marco varargs when compile by g++ */
 #if 1
 #define DERROR(fmt, ...) \
-	do { fprintf(stderr, "[istcc] @error %s %ld %s [%s] :" fmt, __FILE__, __LINE__, __FUNCTION__, (strerror(errno)), ##__VA_ARGS__); } while (0)
+	do { fprintf(stderr, "[istcc] @error %s %d %s [%s] :" fmt, __FILE__, __LINE__, __FUNCTION__, (strerror(errno)), ##__VA_ARGS__); } while (0)
 
 
 #define DPRINT(fmt, ...) \
-	do { fprintf(stderr, "[istcc] @debug %s %ld %s :" fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__); } while (0)
+	do { fprintf(stderr, "[istcc] @debug %s %d %s :" fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__); } while (0)
 
 #define DPRINT0(str) \
-	do { fprintf(stderr, "[istcc] @debug %s %ld %s :" str, __FILE__, __LINE__, __FUNCTION__); } while (0)
+	do { fprintf(stderr, "[istcc] @debug %s %d %s :" str, __FILE__, __LINE__, __FUNCTION__); } while (0)
 #else
 #define DERROR(fmt, args...) \
 	do { fprintf(stderr, "@error %s %d %s [%s] :" fmt, __FILE__, __LINE__, __FUNCTION__, (strerror(errno)), ##args); } while (0)
