@@ -7,7 +7,7 @@
 
 #define DEFAULT_HOST_NAME "192.168.0.1"
 #define DEFAULT_HOST_COMMUNITY "public"
-#define RESPONSE_TIMEOUT_MS (3000)
+#define RESPONSE_TIMEOUT_MS (1500)
 
 
 static struct snmp_session *pSnmpSession = NULL;
