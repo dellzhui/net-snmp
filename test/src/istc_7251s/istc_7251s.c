@@ -70,13 +70,6 @@ static unsigned int g_istcd_addr = 0;
 static unsigned short g_istcd_port = ISTC_DEFAULT_PORT;
 
 
-static istc_async_desc_t g_istc_async_desc = {
-    .sock = -1,
-    .tid = 0,
-    .rwlock = PTHREAD_RWLOCK_INITIALIZER,
-};
-
-
 //#ifndef ISTC_USE_SNMP
 #if 1
 const char *istc_inet_ntoa(unsigned int ip, char *buff, int size)
@@ -301,7 +294,7 @@ static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
 			return -1; \
 		} \
 		if (__ret != (size)) { \
-			DPRINT("send trancated, expect %d, send %d\n", (size), __ret); \
+			DPRINT("send trancated, expect %d, send %d\n", (int)(size), __ret); \
 			istc_client_close((sock)); \
 			return -1; \
 		} \
@@ -318,7 +311,7 @@ static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
 			return -1; \
 		} \
 		if (__ret != (size)) { \
-			DPRINT("recv trancated, expect %d, recv %d, return\n", (size), __ret); \
+			DPRINT("recv trancated, expect %d, recv %d, return\n", (int)(size), __ret); \
 			istc_client_close((sock)); \
 			return -1; \
 		} \
@@ -335,7 +328,7 @@ static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
 			return -1; \
 		} \
 		if (__ret != (size)) { \
-			DPRINT("recv trancated, expect %d, recv %d, return\n", (size), __ret); \
+			DPRINT("recv trancated, expect %d, recv %d, return\n", (int)(size), __ret); \
 			istc_client_close((sock)); \
 			return -1; \
 		} \
@@ -2926,7 +2919,7 @@ int istc_dhcpc_option60_s_remove(const char *ifname)
 
 
 
-
+#ifndef ISTC_USE_SNMP
 /************************    link notification routines    ************************/
 #define ISTC_LINK_CHANGE_LIST_MAX	32
 #define ISTC_LINK_CHANGE_FLAG_USED	1
@@ -2948,6 +2941,12 @@ typedef struct istc_link_change_desc_s {
     int sock;
     istc_link_change_data_t list[ISTC_LINK_CHANGE_LIST_MAX];
 } istc_link_change_desc_t;
+
+static istc_async_desc_t g_istc_async_desc = {
+    .sock = -1,
+    .tid = 0,
+    .rwlock = PTHREAD_RWLOCK_INITIALIZER,
+};
 
 static istc_link_change_desc_t g_istc_link_desc = {
     .rwlock = PTHREAD_RWLOCK_INITIALIZER,
@@ -3512,7 +3511,7 @@ int istc_async_callback_unregister(istc_async_callback_t callback)
 
     return 0;
 }
-
+#endif
 
 int istc_route_state_get(int *state)
 {
