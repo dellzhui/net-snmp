@@ -3538,7 +3538,7 @@ void cmd_show_sta_ssid(istc_sta_ssid_t *ssidlist, int cnt)
     }
 
 }
-
+#ifndef ISTC_USE_SNMP
 static void cmd_async_callback(int command, const void *data, int size)
 {
     if (!data) {
@@ -3622,7 +3622,7 @@ static void cmd_async_callback(int command, const void *data, int size)
             break;
     }
 }
-
+#endif
 int cmd_handle_misc_async_sta_connect(cmd_t * this, int argc, char **argv)
 {
     //int ret;
@@ -4336,7 +4336,7 @@ int main(int argc, char *argv[])
     }
 
     cmd_deinit();
-
+#ifndef ISTC_USE_SNMP
 	if (istc_link_change_unregister(ISTC_IFNAME_ALL, link_change_callback) != 0) {
 		printf("unregister %s link notification failed\n", ISTC_IFNAME_ALL);
 	} else {
@@ -4347,7 +4347,7 @@ int main(int argc, char *argv[])
         printf("register async callback failed\n");
         return -1;
     }    
-
+#endif
     return 0;
 }
 
