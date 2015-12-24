@@ -4,7 +4,7 @@
 
 #include <net-snmp/types.h>
 
-#if (defined(WIN32) || defined(cygwin))
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 
 /*
  * database access functions for host, services, protocols, networks 
