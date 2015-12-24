@@ -6,6 +6,8 @@
      */
 
 #include <stdio.h>
+#include <arpa/inet.h>
+#include <sys/select.h>
 
 #ifndef NET_SNMP_CONFIG_H
 #error "Please include <net-snmp/net-snmp-config.h> before this file"
@@ -99,6 +101,10 @@ typedef long ssize_t;
 
 #ifndef HAVE_NFDS_T
 typedef unsigned long int nfds_t;
+#endif
+
+#ifndef HAVE_INO64_T
+typedef unsigned int ino64_t;
 #endif
 
     /*
