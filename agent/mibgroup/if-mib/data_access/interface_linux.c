@@ -130,6 +130,7 @@ netsnmp_prefix_listen_info list_info;
 int netsnmp_prefix_listen(void);
 #endif
 
+typedef unsigned short ushort;
 
 void
 netsnmp_arch_interface_init(void)
