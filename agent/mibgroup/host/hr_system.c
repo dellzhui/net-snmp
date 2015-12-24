@@ -670,6 +670,7 @@ count_users(void)
         if (utmp_p->ut_type != USER_PROCESS)
             continue;
 #endif
+#define DEAD_PROCESS  8 /* Terminated process */
 #ifndef UTMP_HAS_NO_PID
             /* This block of code fixes zombie user PIDs in the
                utmp/utmpx file that would otherwise be counted as a
