@@ -21,7 +21,6 @@
 # define PROC_PATH          "/proc"
 # define SOCKET_TYPE_1      "socket:["
 # define SOCKET_TYPE_2      "[0000]:"
-
 /* Definition of a simple open addressing hash table.*/
 /* When inode == 0 then the entry is empty.*/
 typedef struct {
