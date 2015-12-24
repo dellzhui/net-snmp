@@ -572,6 +572,9 @@
 /* Define to 1 if the system has the type `nfds_t'. */
 #undef HAVE_NFDS_T
 
+/* Define to 1 if the system has the type `ino64_t'. */
+#undef HAVE_INO64_T
+
 /* Define to 1 if you have the `nlist' function. */
 #undef HAVE_NLIST
 
