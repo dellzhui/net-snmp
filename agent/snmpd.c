@@ -602,7 +602,7 @@ main(int argc, char *argv[])
                 int             gid;
 
                 gid = strtoul(optarg, &ecp, 10);
-#if HAVE_GETGRNAM && HAVE_PWD_H
+#if HAVE_GETGRNAM && HAVE_PWD_H && HAVE_GRP_H
                 if (*ecp) {
                     struct group  *info;
 
