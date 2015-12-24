@@ -614,6 +614,7 @@ inetname(struct in_addr *inp)
 			domain[0] = '\0';
 	}
 	cp = NULL;
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))	
 	if (!nflag && inp->s_addr != INADDR_ANY) {
 		int net = inet_netof(*inp);
 		int lna = inet_lnaof(*inp);
@@ -642,6 +643,7 @@ inetname(struct in_addr *inp)
 			}
 		}
 	}
+#endif	
 	if (inp->s_addr == INADDR_ANY)
 		snprintf(line, sizeof line, "*");
 	else if (cp)
