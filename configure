@@ -16241,7 +16241,8 @@ done
 
 
 #  Agent:
-for ac_header in dlfcn.h    err.h      fcntl.h    fstab.h                                   grp.h      io.h                                      ioctls.h   kstat.h    kvm.h      limits.h                                  mntent.h   mtab.h                                               pkglocs.h             pwd.h                                     com_err.h             et/com_err.h                              utmpx.h    utsname.h
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+for ac_header in dlfcn.h    err.h      fcntl.h    fstab.h                   io.h                                      ioctls.h   kstat.h    kvm.h      limits.h                                  mntent.h   mtab.h                                               pkglocs.h             pwd.h                                     com_err.h             et/com_err.h                              utmpx.h    utsname.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
@@ -16249,11 +16250,20 @@ if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
   cat >>confdefs.h <<_ACEOF
 #define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
 _ACEOF
-
 fi
-
 done
-
+else
+for ac_header in dlfcn.h    err.h      fcntl.h    fstab.h          grp.h        io.h                                      ioctls.h   kstat.h    kvm.h      limits.h                                  mntent.h   mtab.h                                               pkglocs.h             pwd.h                                     com_err.h             et/com_err.h                              utmpx.h    utsname.h
+do :
+  as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
+ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
+if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+_ACEOF
+fi
+done
+fi
 
 for ac_header in sys/diskio.h  sys/dkio.h                                                   sys/file.h    sys/filio.h   sys/fixpoint.h                                 sys/fs.h      sys/ioctl.h   sys/loadavg.h  sys/mntent.h                    sys/mnttab.h  sys/pool.h    sys/protosw.h  sys/pstat.h                     sys/sockio.h  sys/stat.h    sys/statfs.h   sys/statvfs.h                   sys/stream.h  sys/sysget.h  sys/sysmp.h                                    sys/tcpipstats.h            sys/utsname.h  sys/vfs.h                       sys/vm.h      sys/vmmac.h   sys/vmmeter.h  sys/vmparam.h                   sys/vmsystm.h
 do :
@@ -16282,9 +16292,9 @@ fi
 
 done
 
-
 #  Apps:
-for ac_header in fcntl.h    grp.h      pwd.h                        sys/cdefs.h   sys/ioctl.h                          sys/socket.h  sys/sockio.h                         sys/time.h
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+for ac_header in fcntl.h      pwd.h                        sys/cdefs.h   sys/ioctl.h                          sys/socket.h  sys/sockio.h                         sys/time.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
@@ -16292,11 +16302,20 @@ if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
   cat >>confdefs.h <<_ACEOF
 #define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
 _ACEOF
-
 fi
-
 done
-
+else
+for ac_header in fcntl.h    grp.h  pwd.h                        sys/cdefs.h   sys/ioctl.h                          sys/socket.h  sys/sockio.h                         sys/time.h
+do :
+  as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
+ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
+if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+_ACEOF
+fi
+done
+fi
 
 #  Not-Used:
 for ac_header in search.h   sgtty.h    xti.h                        sys/dmap.h sys/poll.h                              sys/timeout.h                                      machine/pte.h                                      pci/pci.h
@@ -18313,6 +18332,15 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 
 
+fi
+
+ac_fn_c_check_type "$LINENO" "ino64_t" "ac_cv_type_ino64_t" "#include <sys/types.h>
+"
+if test "x$ac_cv_type_ino64_t" = xyes; then :
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_INO64_T 1
+_ACEOF
 fi
 
 
@@ -24758,6 +24786,18 @@ fi
 #   Check for 'in_addr_t'
 #       May be in <netinet/in.h>                        (AIX)
 #
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+ac_fn_c_check_type "$LINENO" "in_addr_t" "ac_cv_type_in_addr_t" "
+#include <sys/types.h>
+#if STDC_HEADERS
+#include <stdlib.h>
+#include <stddef.h>
+#endif
+#ifdef HAVE_NETINET_IN_H
+#include <arpa/inet.h>
+#endif
+"
+else
 ac_fn_c_check_type "$LINENO" "in_addr_t" "ac_cv_type_in_addr_t" "
 #include <sys/types.h>
 #if STDC_HEADERS
@@ -24768,6 +24808,8 @@ ac_fn_c_check_type "$LINENO" "in_addr_t" "ac_cv_type_in_addr_t" "
 #include <netinet/in.h>
 #endif
 "
+fi
+
 if test "x$ac_cv_type_in_addr_t" = xyes; then :
 
 cat >>confdefs.h <<_ACEOF
@@ -25494,11 +25536,15 @@ do :
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
 if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
   cat >>confdefs.h <<_ACEOF
-#define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
+#define `$as_echo "HAVE_random" | $as_tr_cpp` 1
 _ACEOF
-
 fi
 done
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_random" | $as_tr_cpp` 1
+_ACEOF
+fi
 
 
 #  Library:
