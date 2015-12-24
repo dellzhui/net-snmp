@@ -34,6 +34,7 @@ AC_TYPE_UINTPTR_T
 
 AC_CHECK_TYPES([off64_t])
 AC_CHECK_TYPES([nfds_t],,,[#include <sys/poll.h>])
+AC_CHECK_TYPES([ino64_t],,,[#include <sys/types.h>])
 
 #   Solaris specific checks
 #       (taken from Perl's configure script)
