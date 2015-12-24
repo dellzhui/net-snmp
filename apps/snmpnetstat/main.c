@@ -382,6 +382,7 @@ main(int argc, char *argv[])
 		exit(0);
 	}
 #endif
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 	/*
 	 * Keep file descriptors open to avoid overhead
 	 * of open/close on each call to get* routines.
@@ -459,6 +460,7 @@ main(int argc, char *argv[])
 		if (!pname || strcmp(pname,tp->pr_name) == 0)
 		    printproto(tp, pname);
 	}
+#endif	
     /*
 	if (af == AF_IPX || af == AF_UNSPEC)
 		for (tp = ipxprotox; tp->pr_name; tp++)
@@ -534,7 +536,7 @@ name2protox(const char *name)
 	 */
 	if ((tp = knownname(name)))
 		return (tp);
-
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 	setprotoent(1);			/* make protocol lookup cheaper */
 	while ((p = getprotoent())) {
 		/* netsnmp_assert: name not same as p->name */
@@ -545,6 +547,7 @@ name2protox(const char *name)
 			}
 	}
 	endprotoent();
+#endif	
 	return (NULL);
 }
 
