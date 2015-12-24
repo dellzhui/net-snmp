@@ -1,6 +1,6 @@
 CURDIR = $(shell pwd)
 
-CC=gcc
+CC = arm-linux-androideabi-gcc
 
 SRCS_ROOT_DIR = $(CURDIR)/src
 SRCS_ALL_DIR = $(shell find $(SRCS_ROOT_DIR) -type d)
@@ -26,7 +26,7 @@ LIBISTC_7251S = $(LIBS_DIR)/libistc_7251s.so
 LIBSNMP = $(LIBS_DIR)/libsnmp.so
 TARGETS = $(LIBSNMP) $(LIBISTC_7251S) $(TEST) $(ISTC_CLI) 
 
-CFLAGS = -fPIC -I./include -Werror -Wall -g -fno-strict-aliasing -O2 -Ulinux -Dlinux=linux -I. -I/home/work/opensource/Git/net-snmp/out/include
+CFLAGS = -fPIC -I./include -Wall -g -fno-strict-aliasing -O2 -Ulinux -Dlinux=linux -I. -I/home/work/opensource/Git/net-snmp/out/include
 BUILDLIBS = -lpthread -L/home/work/opensource/Git/net-snmp/out/lib -lnetsnmp -lm
 DLFLAGS = -shared
 
