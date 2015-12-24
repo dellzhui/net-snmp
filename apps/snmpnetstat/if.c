@@ -167,6 +167,7 @@ _set_address( struct _if_info *cur_if )
 }
 
 
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 /*
  * Print a description of the network interfaces.
  */
@@ -492,6 +493,7 @@ intpr(int interval)
         SNMP_FREE( cur_if );
     }
 }
+#endif
 
 
 #define	MAXIF	100
@@ -510,6 +512,7 @@ struct	iftot {
 
 int signalled;	/* set if alarm goes off "early" */
 
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 /*
  * Print a running summary of interface statistics.
  * Repeat display every interval seconds, showing statistics
@@ -846,7 +849,7 @@ loop:
     	goto loop;
     /*NOTREACHED*/
 }
-
+#endif
 
 /*
  * timerSet sets or resets the timer to fire in "interval" seconds.
@@ -908,6 +911,7 @@ timerSet(int interval_seconds)
     (void) alarm(interval_seconds);
 }
 
+#if (defined(WIN32) || defined(cygwin) || defined(aix4))
 static void
 timerPause(void)
 {
@@ -925,5 +929,6 @@ timerPause(void)
     sigsetmask(oldmask);
 #endif
 }
+#endif
 
 #endif                          /* !WIN32 && !cygwin */
