@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 
+typedef unsigned long ulong;
+
 netsnmp_feature_require(prefix_info)
 netsnmp_feature_require(find_prefix_info)
 
