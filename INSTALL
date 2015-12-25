@@ -1,3 +1,15 @@
+=================
+./configure --prefix=`pwd`/out --host=arm-linux --with-cc=arm-linux-androideabi-gcc --with-linkcc=arm-linux-androideabi-gcc --with-ar=arm-linux-androideabi-ar \
+--with-mib-modules="STEVE-TEST-MIB" --disable-embedded-perl --without-perl-modules \
+--with-ldflags=--sysroot=/home/iSDK/android-ndk-r9d/platforms/android-9/arch-arm \
+--with-cflags="-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/include \
+	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libm/include \
+	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/arch-arm/include \
+	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/kernel/common \
+	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/kernel/arch-arm"
+=================
+
+
 TABLE OF CONTENTS
 =================
 
