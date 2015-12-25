@@ -1,12 +1,17 @@
 =================
 ./configure --prefix=`pwd`/out --host=arm-linux --with-cc=arm-linux-androideabi-gcc --with-linkcc=arm-linux-androideabi-gcc --with-ar=arm-linux-androideabi-ar \
---with-mib-modules="STEVE-TEST-MIB" --disable-embedded-perl --without-perl-modules \
---with-ldflags=--sysroot=/home/iSDK/android-ndk-r9d/platforms/android-9/arch-arm \
+--disable-mibs --disable-embedded-perl --without-perl-modules \
+--with-out-mib-modules="snmpv3mibs mibII ucd_snmp notification notification-log-mib target agent_mibs agentx disman/event disman/schedule utilities host" \
+--with-ldflags="-nostdlib -Wl,--gc-sections -Wl,-Bsymbolic -L/home/7251s/porting-7251s/products/../install/brcmSDK/lib -Wl,--no-whole-archive -lcutils -lc -lm -lgcc \
+ -Wl,--no-undefined -Wl,--whole-archive -Wl,--fix-cortex-a8" \
 --with-cflags="-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/include \
 	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libm/include \
 	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/arch-arm/include \
 	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/kernel/common \
-	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/kernel/arch-arm"
+	-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/kernel/arch-arm \
+	-Dmmap64=mmap 	-march=armv7-a -mfloat-abi=softfp -finline-functions -finline-limit=300 -fno-inline-functions-called-once -fgcse-after-reload -frerun-cse-after-loop \
+	-frename-registers -fomit-frame-pointer -fstrict-aliasing -funswitch-loops   -msoft-float  -DBDBG_DEBUG_BUILD=1 -D_GNU_SOURCE=1 -DLINUX -pipe -D_FILE_OFFSET_BITS=64 \
+	-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -DBSTD_CPU_ENDIAN=BSTD_ENDIAN_LITTLE -Wstrict-prototypes -Wno-unused-value"
 =================
 
 
