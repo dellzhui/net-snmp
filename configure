@@ -19739,6 +19739,8 @@ _ACEOF
 fi
 done
 
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+else
 for ac_func in getvfsstat
 do :
   ac_fn_c_check_func "$LINENO" "getvfsstat" "ac_cv_func_getvfsstat"
@@ -19746,9 +19748,9 @@ if test "x$ac_cv_func_getvfsstat" = xyes; then :
   cat >>confdefs.h <<_ACEOF
 #define HAVE_GETVFSSTAT 1
 _ACEOF
-
 fi
 done
+fi
 
 # getmntent is in the standard C library on UNICOS, in -lsun on Irix 4,
 # -lseq on Dynix/PTX, -lgen on Unixware.
@@ -25548,6 +25550,18 @@ fi
 
 
 #  Library:
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
+for ac_func in closedir         flockfile                        fork            funlockfile     getipnodebyname                  gettimeofday    if_nametoindex  mkstemp                          opendir         readdir         regcomp                          setenv          setitimer       setlocale                        setsid          snprintf        strcasestr                       strdup          strerror        strncasecmp                      sysconf         times           vsnprintf
+do :
+  as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
+if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
+_ACEOF
+fi
+done
+else
 for ac_func in closedir        fgetc_unlocked  flockfile                        fork            funlockfile     getipnodebyname                  gettimeofday    if_nametoindex  mkstemp                          opendir         readdir         regcomp                          setenv          setitimer       setlocale                        setsid          snprintf        strcasestr                       strdup          strerror        strncasecmp                      sysconf         times           vsnprintf
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
@@ -25556,9 +25570,9 @@ if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
   cat >>confdefs.h <<_ACEOF
 #define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
 _ACEOF
-
 fi
 done
+fi
 
 
 # IPv4/IPv6 function checks. AC_CHECK_FUNC() can't find these on MinGW
@@ -32156,6 +32170,9 @@ fi
   echo ""
   echo "---------------------------------------------------------"
   echo ""
+
+sed -i 's/CC -shared \\/CC -shared -nostdlib \\/g' libtool
+sed -i 's/^LIBS\t\t=/LIBS\t\t= \/home\/7251s\/porting-7251s\/install\/brcmSDK\/lib\/crtbegin_dynamic.o \/home\/7251s\/porting-7251s\/install\/brcmSDK\/lib\/crtend_android.o/g' apps/Makefile
 
 # Local Variables:
 # mode: Autoconf
