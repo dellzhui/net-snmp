@@ -12,7 +12,7 @@ echo "${RESULT}"
 
 DATE=`date +%Y-%m-%d_%H%M%S`
 
-if [ $# -lt 0 ];then
+if [ $# -gt 0 ];then
 	git commit -m "GC update ${DATE}" $@
 else
 	for i in `git diff | grep "diff " | sed 's/diff --git a\///g' | sed 's/ b\/.*$//g'`;do
