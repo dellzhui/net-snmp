@@ -32171,8 +32171,10 @@ fi
   echo "---------------------------------------------------------"
   echo ""
 
+if test "x$CC" = xarm-linux-androideabi-gcc; then :
 sed -i 's/CC -shared \\/CC -shared -nostdlib \\/g' libtool
 sed -i 's/^LIBS\t\t=/LIBS\t\t= \/home\/7251s\/porting-7251s\/install\/brcmSDK\/lib\/crtbegin_dynamic.o \/home\/7251s\/porting-7251s\/install\/brcmSDK\/lib\/crtend_android.o/g' apps/Makefile
+fi
 
 # Local Variables:
 # mode: Autoconf
