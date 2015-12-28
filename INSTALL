@@ -115,7 +115,7 @@ The simplest way to compile this package is:
      completes it prints a short message (also available in configure-summary)
      indicating what functionality will be available when compiled.
 
-  2. If necessary, edit include/net-snmp/net-snmp-config.h (see above).  
+  2. If necessary, edit include/net-snmp/net-snmp-config.h (see above).
 
   3. Type `make' to compile the package.
 
@@ -132,7 +132,7 @@ The simplest way to compile this package is:
 
   7. You can remove the application by typing `make uninstall'.
 
-There may be additional installation issues discussed in the 
+There may be additional installation issues discussed in the
 README's for various platforms such as README.solaris.
 
 
@@ -157,7 +157,7 @@ Net-SNMP libraries and demon applications.
 
       ./configure --enable-embedded-perl --enable-shared
 
-   Starting with Net-SNMP 5.4, configure enables embedded Perl and the 
+   Starting with Net-SNMP 5.4, configure enables embedded Perl and the
    Perl modules by default when possible unless explicitly disabled.
 
    If you wish to build the perl modules by hand, *install Net-SNMP
@@ -293,3 +293,46 @@ operates.
 
 `configure' also accepts some other, not widely useful, options.
 
+
+
+
+
+
+-fomit-frame-pointer -Wall -Winline -finline-functions  -fstack-protector-all -fPIC -O0 -DSTATIC= -g -DOSAL_OS_TYPE=OSAL_OS_LINUX -DOSAL_CPU_TYPE=OSAL_CPU_ARM -I/inc \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/kernel/common \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/kernel/arch-arm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/arch-arm/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libstdc++/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libthread_db/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm/arm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include \
+-D__ARM_ARCH_5__     -D__ARM_ARCH_5T__     -D__ARM_ARCH_5E__     -D__ARM_ARCH_5TE__     -DANDROID     -DSK_RELEASE     -DNDEBUG     -DHAVE_SYS_UIO_H     -UDEBUG     -DB_REFSW_ANDROID -Dmmap64=mmap -march=armv7-a -mfloat-abi=softfp -finline-functions -finline-limit=300 -fno-inline-functions-called-once -fgcse-after-reload -frerun-cse-after-loop -frename-registers -fomit-frame-pointer -fstrict-aliasing -funswitch-loops
+
+
+
+
+
+./configure --prefix=`pwd`/out --host=arm-linux --with-cc=arm-linux-androideabi-gcc --with-linkcc=arm-linux-androideabi-gcc --with-ar=arm-linux-androideabi-ar \
+--disable-mibs --disable-embedded-perl --without-perl-modules \
+--with-ldflags="-nostdlib -Wl,--gc-sections -Wl,-Bsymbolic -L/home/7251s/porting-7251s/products/../install/brcmSDK/lib -Wl,--no-whole-archive -lcutils -lc -lm -lgcc \
+ -Wl,--no-undefined -Wl,--whole-archive -Wl,--fix-cortex-a8" \
+--with-cflags="-fomit-frame-pointer -Wall -Winline -finline-functions  -fstack-protector-all -fPIC -O0 -DSTATIC= -g -DOSAL_OS_TYPE=OSAL_OS_LINUX -DOSAL_CPU_TYPE=OSAL_CPU_ARM -I/inc \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/kernel/common \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/kernel/arch-arm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libc/arch-arm/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libstdc++/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libthread_db/include \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include/bionic/libm/arm \
+-I/home/7251s/porting-7251s/products/../install/brcmSDK/include \
+-D__ARM_ARCH_5__     -D__ARM_ARCH_5T__     -D__ARM_ARCH_5E__     \
+-D__ARM_ARCH_5TE__     -DANDROID     -DSK_RELEASE     -DNDEBUG     \
+-DHAVE_SYS_UIO_H     -UDEBUG     -DB_REFSW_ANDROID -Dmmap64=mmap \
+-march=armv7-a -mfloat-abi=softfp -finline-functions -finline-limit=300 \
+-fno-inline-functions-called-once -fgcse-after-reload -frerun-cse-after-loop \
+-frename-registers -fomit-frame-pointer -fstrict-aliasing -funswitch-loops"
