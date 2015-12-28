@@ -22,7 +22,8 @@ for para in "$@";do
     if [ ! -z ${INF} -a $i -gt 2 ] || [ -z ${INF} ];then
         if [ ! -e ${para} ];then
             echo "${para} does not exist"
-            exit
+            let i++
+            continue
         fi
         FILES+=" ${para} "
     fi
