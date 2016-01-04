@@ -68,6 +68,7 @@ SOFTWARE.
 
 #define NETSNMP_DS_APP_DONT_FIX_PDUS 0
 
+static int hex_return_flag = 0;
 static void
 optProc(int argc, char *const *argv, int opt)
 {
@@ -78,6 +79,9 @@ optProc(int argc, char *const *argv, int opt)
             case 'f':
                 netsnmp_ds_toggle_boolean(NETSNMP_DS_APPLICATION_ID, 
 					  NETSNMP_DS_APP_DONT_FIX_PDUS);
+                break;
+            case 'h':
+                hex_return_flag = 1;
                 break;
             default:
                 fprintf(stderr, "Unknown flag passed to -C: %c\n",
@@ -201,7 +205,15 @@ main(int argc, char *argv[])
         if (response->errstat == SNMP_ERR_NOERROR) {
             for (vars = response->variables; vars;
                  vars = vars->next_variable)
+             {
                 print_variable(vars->name, vars->name_length, vars);
+            #if 1    
+                if(vars->type== 'B' && hex_return_flag == 1)
+                {
+                    printf("SNMP_HEX:%08x\n", *(vars->val.integer));
+                }
+            }
+            #endif    
 
         } else {
             fprintf(stderr, "Error in packet\nReason: %s\n",
