@@ -2,7 +2,6 @@
 ./configure --prefix=`pwd`/out --host=arm-linux --with-cc=arm-linux-androideabi-gcc --with-linkcc=arm-linux-androideabi-gcc --with-ar=arm-linux-androideabi-ar \
 --disable-mibs --disable-embedded-perl --without-perl-modules \
 --with-out-mib-modules="snmpv3mibs mibII ucd_snmp notification notification-log-mib target agent_mibs agentx disman/event disman/schedule utilities host" \
---with-mibdirs="/system/usr/share/snmp/mibs" \
 --with-ldflags="-nostdlib -Wl,--gc-sections -Wl,-Bsymbolic -L/home/7251s/porting-7251s/products/../install/brcmSDK/lib -Wl,--no-whole-archive -lcutils -lc -lm -lgcc \
  -Wl,--no-undefined -Wl,--whole-archive -Wl,--fix-cortex-a8" \
 --with-cflags="-I/home/7251s/porting-7251s/install/brcmSDK/include/bionic/libc/include \
