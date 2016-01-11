@@ -7,7 +7,7 @@
 
 #define DEFAULT_HOST_NAME "192.168.0.1"
 #define DEFAULT_HOST_COMMUNITY "public"
-#define RESPONSE_TIMEOUT_MS (1500)
+#define RESPONSE_TIMEOUT_MS (3000)
 
 
 static struct snmp_session *pSnmpSession = NULL;
@@ -524,9 +524,10 @@ int istc_snmp_set(oid *anOID, size_t anOID_len, char type, char *values, ISTC_SN
     
     if(snmp_set(pSnmpSession, anOID, anOID_len, type, values, pStatus) != 0 || *pStatus != ISTC_SNMP_ERR_NOERROR)
     {
+        istc_log("istc_snmp_set error\n");
         return ISTC_SNMP_ERROR;
     }
-    
+    istc_log("istc_snmp_set success\n");
     return ISTC_SNMP_SUCCESS;
 }
 
