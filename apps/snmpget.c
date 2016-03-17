@@ -208,9 +208,14 @@ main(int argc, char *argv[])
              {
                 print_variable(vars->name, vars->name_length, vars);
             #if 1    
-                if(vars->type== 'B' && hex_return_flag == 1)
+                //printf("type = %x\n", vars->type);
+                if(vars->type == 'B' && hex_return_flag == 1)
                 {
                     printf("SNMP_HEX:%08x\n", *(vars->val.integer));
+                }
+                else if(vars->type == 4 && hex_return_flag == 1)
+                {
+                    printf("SNMP_MAC:%02x:%02x:%02x:%02x:%02x:%02x\n", vars->val.bitstring[0], vars->val.bitstring[1], vars->val.bitstring[2], vars->val.bitstring[3], vars->val.bitstring[4], vars->val.bitstring[5]);
                 }
             }
             #endif    
