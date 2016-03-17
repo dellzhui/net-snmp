@@ -78,7 +78,7 @@ char           *end_name = NULL;
 
 static int print_oid(oid *Oid, int len)
 {
-    //return 0;
+    return 0;
     oid *oids = Oid;
     
     if(Oid == NULL || len  <= 0)
@@ -248,7 +248,7 @@ main(int argc, char *argv[])
     default:
         break;
     }
-    printf("%s %d:arg = %d argc = %d\n", __FUNCTION__, __LINE__, arg, argc);
+    //printf("%s %d:arg = %d argc = %d\n", __FUNCTION__, __LINE__, arg, argc);
     /*
      * get the initial object and subtree 
      */
