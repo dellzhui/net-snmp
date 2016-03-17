@@ -1,6 +1,7 @@
 CURDIR = $(shell pwd)
 
-CC = arm-linux-androideabi-gcc
+#CC = arm-linux-androideabi-gcc
+CC=gcc
 
 SRCS_ROOT_DIR = $(CURDIR)/src
 SRCS_ALL_DIR = $(shell find $(SRCS_ROOT_DIR) -type d)
