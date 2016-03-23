@@ -2138,10 +2138,10 @@ int istc_qos_get_device_bandwidth_list( istc_conf_qos_device_bandwidth_t *list, 
             {
                 break;
             }
-            if((int)vars->val.integer != -1 && j < qos_list_count)
+            if((int)(*vars->val.integer) != -1 && j < qos_list_count)
             {
                 memcpy(qos_list[j].mac, mac_list[i], sizeof(qos_list[j].mac));
-                qos_list[j].download_kbyte = (int)vars->val.integer;
+                qos_list[j].download_kbyte = (int)*vars->val.integer;
                 j++;
             }
         }
@@ -2175,9 +2175,9 @@ int istc_qos_get_device_bandwidth_list( istc_conf_qos_device_bandwidth_t *list, 
             {
                 break;
             }
-            if((int)vars->val.integer != -1 && j < qos_list_count)
+            if((int)*vars->val.integer != -1 && j < qos_list_count)
             {
-                qos_list[j].upload_kbyte = (int)vars->val.integer;
+                qos_list[j].upload_kbyte = (int)*vars->val.integer;
                 j++;
             }
         }
