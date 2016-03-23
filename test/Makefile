@@ -1,6 +1,6 @@
 .PHONY: all clean
 CURDIR = $(shell pwd)
-S = $(CURDIR)/../../../
+#S = $(CURDIR)/../../../
 #include $(S)/make/tools.mk
 
 CC=gcc
@@ -32,8 +32,8 @@ LIBSNMP = $(LIBS_DIR)/libsnmp.so
 TARGETS = $(LIBSNMP) $(LIBISTC_7251S) $(TEST) $(ISTC_CLI)
 
 CFLAGS += -fPIC -I./include -Werror -Wall  -g -fno-strict-aliasing -O2 -Ulinux -Dlinux=linux -I.
-LDFLAGS += -L./lib/netsnmp -lnetsnmp -lm 
-OFLAGS = $(S)/install/brcmSDK/lib/crtbegin_dynamic.o $(S)/install/brcmSDK/lib/crtend_android.o
+LDFLAGS += -lpthread -lc -L./lib/netsnmp -lnetsnmp -lm 
+#OFLAGS = $(S)/install/brcmSDK/lib/crtbegin_dynamic.o $(S)/install/brcmSDK/lib/crtend_android.o
 
 vpath %.c $(SRCS_ALL_DIR)
 $(shell if [ ! -d $(OBJS_DIR) ]; then mkdir $(OBJS_DIR); fi)
