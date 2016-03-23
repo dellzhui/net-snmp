@@ -38,8 +38,7 @@ modification history
 #include <stdarg.h>
 #include <errno.h>
 
-
-extern int g_istc_debug;
+int g_istc_debug = 0;
 extern int g_istc_debug_level;
 
 #define ISTC_EMERG	  "<0>"     /* system is unusable               */
@@ -55,7 +54,7 @@ extern int g_istc_debug_level;
 #if 0
 #define istc_log(fmt, ...) \
 	do { \
-		if (1 || g_istc_debug) { \
+		if (g_istc_debug) { \
 			if (fmt[0] == '<' && fmt[2] == '>' && (fmt[1] >= '0' && fmt[1] <= '7')) { \
 				if ((fmt[1] - '0') <= g_istc_debug_level) { \
 					istc_printf("[istcd] %s %d %s " fmt, __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__); \
@@ -69,7 +68,18 @@ extern int g_istc_debug_level;
 	} while (0)
 #else
 #define istc_log(fmt, ...) \
-    do { fprintf(stderr, "[istcc] %s %d: " fmt, __FUNCTION__, __LINE__, ##__VA_ARGS__); } while (0)
+    do { \
+            if(g_istc_debug) { \
+                fprintf(stderr, "[istcc] %s %d: " fmt, __FUNCTION__, __LINE__, ##__VA_ARGS__); \
+            } \
+         } while (0)
+
+#define istc_print(fmt, ...) \
+    do { \
+            if(g_istc_debug) { \
+                fprintf(stderr, fmt, ##__VA_ARGS__); \
+            } \
+         } while (0) 
 #endif
 
 int istc_printf(const char *fmt, ...)

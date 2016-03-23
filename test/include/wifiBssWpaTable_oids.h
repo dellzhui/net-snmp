@@ -14,7 +14,7 @@ extern "C" {
 
 /* column number definitions for table wifiBssWpaTable */
 #define WIFIBSSWPATABLE_OID              1,3,6,1,4,1,4413,2,2,2,1,18,1,2,3,4
-
+#define WIFIBSSWPAENTRY_OID              1
 
 #define COLUMN_WIFIBSSWPAALGORITHM         1
 #define COLUMN_WIFIBSSWPAALGORITHM_FLAG    (0x1 << 0)

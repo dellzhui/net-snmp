@@ -14,7 +14,7 @@ extern "C" {
 
 /* column number definitions for table clabWIFIAccessPointTable */
 #define CLABWIFIACCESSPOINTTABLE_OID              1,3,6,1,4,1,4491,2,5,1,1,6
-
+#define CLABWIFIACCESSPOINTENTRY_OID              1
 
 #define COLUMN_CLABWIFIACCESSPOINTID         1
     

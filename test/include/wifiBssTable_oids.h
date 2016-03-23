@@ -12,9 +12,9 @@ extern "C" {
 #endif
 
 
-/* column number definitions for table wifiBssTable */
+/* column number definitions for table   */
 #define WIFIBSSTABLE_OID              1,3,6,1,4,1,4413,2,2,2,1,18,1,2,1
-
+#define WIFIBSSENTRY_OID              1
 
 #define COLUMN_WIFIBSSID         1
     

@@ -1,3 +1,35 @@
+/**
+ ** Copyright (c) Inspur Group Co., Ltd. Unpublished
+ **
+ ** Inspur Group Co., Ltd.
+ ** Proprietary & Confidential
+ **
+ ** This source code and the algorithms implemented therein constitute
+ ** confidential information and may comprise trade secrets of Inspur
+ ** or its associates, and any use thereof is subject to the terms and
+ ** conditions of the Non-Disclosure Agreement pursuant to which this
+ ** source code was originally received.
+ **/
+
+/******************************************************************************
+DESCRIPTION:
+  snmp interfaces for istc
+
+SEE ALSO:
+
+NOTE:
+
+TODO:
+  
+******************************************************************************/
+
+/* 
+modification history 
+-------------------------------------------------------------------------------
+2016-02-03, chenfx@inspur.com           written
+*/
+
+
 #ifndef __ISTC_SNMP_H__
 #define __ISTC_SNMP_H__
 
@@ -13,7 +45,29 @@ export "C" {
 #include "clabWIFISSIDTable_interface.h"
 #include "wifiBssWpaTable_interface.h"
 #include "wifiBssTable_interface.h"
+#include "ifTable_interface.h"
+#include "ipAddrTable_oids.h"
+#include "ifXTable_interface.h"
+#include "dot11BssTable_interface.h"
+#include "wifiBssAccessTable_interface.h"
+#include "clabWIFIAssociatedDeviceTable_interface.h"
+#include "rgIpLanAddrTable_interface.h"
+#include "clabWIFIRadioTable_interface.h"
+#include "clabWIFIWIFICommitSettings_oids.h"
+#include "wifiAssocStaTable_interface.h"
+#include "clabWIFIRadioStatsTable_interface.h"
+#include "cabhCdpWanDnsServerTable_interface.h"
 
+
+#define SNMP_INT 'i'
+#define SNMP_X 'x'
+#define SNMP_STRING 's'
+#define SNMP_U 'u'
+#define DEFAULT_LAN_INTERFACE "eth2"
+
+#define WAN_INTERFACE_INDEX 1
+#define WLAN0_INTERFACE_INDEX 10000
+#define WLAN1_INTERFACE_INDEX 10100
 
 #define SNMP_ASSERT(x) \
                 do { \
@@ -55,13 +109,14 @@ typedef enum
     ISTC_SNMP_ERR_INCONSISTENTNAME = 18,
 }ISTC_SNMP_RESPONSE_ERRSTAT;
 
+/*istc_snmp_table_parse_datalist输出的数据结构*/
 typedef struct tagSNMP_DATA
 {
     struct tagSNMP_DATA *next;
-    void *data;
+    void *data; /*mib库中每个table对应的结构体，调用istc_snmp_table_parse_datalist后，可以直接映射到特定table的结构I，
+                如ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);*/
     int row;
-    int column;
-}SNMP_DATA_LIST_st;
+}SNMP_DATA_LIST_st; 
 
 typedef struct tagPDU_LIST
 {
@@ -71,6 +126,7 @@ typedef struct tagPDU_LIST
 
 typedef struct tagSNMP_AGENT_INFO_st
 {
+    int retries;
     char name[32];
     char community[32];
 }SNMP_AGENT_INFO_st;
@@ -79,14 +135,42 @@ typedef int (*SnmpTableFun)(void *rowreq_ctx, netsnmp_variable_list *var, int co
 
 
 int istc_snmp_init(void);
+int istc_snmp_get_agent_info(SNMP_AGENT_INFO_st *agentinfo);
+int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
+
 int istc_snmp_walk(oid *anOID, size_t anOID_len, PDU_LIST_st **pdu_list, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
+int istc_snmp_table_get_rows_num(PDU_LIST_st *pPDUList, int *rows_num);
+
 int istc_snmp_set(oid *anOID, size_t anOID_len, char type, char *values, ISTC_SNMP_RESPONSE_ERRSTAT *pStatus);
+
 int istc_snmp_print_oid(oid *Oid, int len);
 int istc_snmp_print_pdulist(PDU_LIST_st *pdu_list, oid *rootOID, size_t rootOID_len);
-int istc_snmp_free_pdulist(PDU_LIST_st *pdu_list);
-int istc_snmp_free_datalist(SNMP_DATA_LIST_st *pDataList);
-int istc_snmp_table_parse_data(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowsNum);
-int istc_snmp_update_agent_info(SNMP_AGENT_INFO_st agentinfo);
+
+
+/*************************************************************************
+
+函数: istc_snmp_table_parse_datalist
+
+输入:
+    rootOID: snmp OID数组，如 oid clabWIFISSIDName[] = {SNMP_TABLE_ID, SNMP_TABLE_COLUMN_ID, SNMP_TABLE_COLUMN_INDEX};其中至少输入SNMP_TABLE_ID
+    rootOID_len: rootOID的长度
+    fun: 每一个table的callback
+    DataLen: table的数据结构的长度
+
+输出: 
+    pDataList: walk的结果链表
+    pRowsNum: walk到的结果列表中结构体的个数，即每个属性(column)的行数
+
+返回:
+    0: 成功
+    -1: 失败
+    
+*************************************************************************/
+int istc_snmp_table_parse_datalist(oid *rootOID, size_t rootOID_len, SnmpTableFun fun, int DataLen, SNMP_DATA_LIST_st **pDataList, int *pRowsNum);
+int istc_snmp_table_free_datalist(SNMP_DATA_LIST_st *pDataList);
+
+
 
 #ifdef __cplusplus
 }

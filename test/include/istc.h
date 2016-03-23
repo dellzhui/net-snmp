@@ -43,7 +43,8 @@ modification history
 #define ISTC_STA_SSID_LIST_MAX	16
 
 /* the max ssid allowed to config per access point */
-#define ISTC_AP_SSID_LIST_MAX	4
+#define ISTC_AP_SSID_LIST_MAX	(8) /*the max ssid num than ui need*/
+#define ISTC_AP_INTERFACE_SSID_MAX (8) /*the max ssid numbrs on one interface*/
 
 /* the max  count of interfaces supported */
 #define ISTC_INTERFACE_MAX		16
@@ -213,6 +214,14 @@ enum {
 	ISTC_DATA_LINK_MAX
 };
 
+enum {
+    ISTC_AP_SSID_2DOT4G = 0,
+    ISTC_AP_SSID_5G,
+    ISTC_AP_GUEST_SSID_2DOT4G,
+    ISTC_AP_GUEST_SSID_5G,
+    ISTC_AP_SSID_TYPE_MAX
+};
+
 typedef struct istc_ap_ssid_s {
     int index;
     int b_disable;
@@ -222,6 +231,7 @@ typedef struct istc_ap_ssid_s {
     int encryption;             /* entryption type */
     int channel;                /* radio channel */
     int b_hidden;
+    int band;
     int b_visitor;
 } istc_ap_ssid_t;
 
@@ -232,6 +242,12 @@ typedef struct istc_ap_sta_s {
     unsigned int sta_ip;        /* station ip address */
     unsigned char sta_mac[6];   /* station mac address */
     unsigned char padding[2];   /* not used just for alignment now */
+    unsigned int up_ceil_rate_kbyte;
+    unsigned int up_flow_kbyte;
+    unsigned int down_ceil_rate_kbyte;
+    unsigned int down_flow_kbyte;
+    unsigned int up_nowtime_ms;
+    unsigned int down_nowtime_ms;
 } istc_ap_sta_t;
 
 
@@ -414,6 +430,8 @@ typedef istc_class_async_ap_ssid_enable_t istc_class_async_ap_ssid_disable_t;
 typedef void (*istc_async_callback_t)(int command, const void *data, int size);
 
 
+unsigned int istc_now_time_ms(void);
+
 
 /* start istc prototype */
 
@@ -435,6 +453,9 @@ int istc_interface_addr_mode_set(const char *ifname, int mode);
 int istc_interface_mac_get(const char *ifname, unsigned char *mac);
 
 int istc_interface_mac_set(const char *ifname, const unsigned char *mac);
+
+int istc_interface_totalflow_get(const char *ifname, unsigned int *up_flow, unsigned int *down_flow);
+
 
 
 /* link class */
@@ -494,6 +515,9 @@ int istc_async_wireless_sta_ssid_scan(const char *ifname);
 
 
 /* WIFI AP class */
+int istc_init_snmp_wifissid(void);
+
+int istc_init(void);
 
 int istc_wireless_ap_ssid_add_by_index(const char *ifname, int index, const istc_ap_ssid_t * ssid);//todo
 
@@ -502,6 +526,8 @@ int istc_wireless_ap_ssid_get_by_index(const char *ifname, int index, istc_ap_ss
 int istc_wireless_ap_ssid_set_by_index(const char *ifname, int index, const istc_ap_ssid_t * ssid);//todo
 
 int istc_wireless_ap_ssid_remove_by_index(const char *ifname, int index);//todo
+
+int istc_wireless_ap_get_ssids_num(int *num);
 
 int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
                               int *count);
@@ -644,7 +670,6 @@ const char *istc_errstr(int err);
 
 
 /* the following pragma instruction to avoid marco varargs when compile by g++ */
-#if 1
 #define DERROR(fmt, ...) \
 	do { fprintf(stderr, "[istcc] @error %s %d %s [%s] :" fmt, __FILE__, __LINE__, __FUNCTION__, (strerror(errno)), ##__VA_ARGS__); } while (0)
 
@@ -654,15 +679,6 @@ const char *istc_errstr(int err);
 
 #define DPRINT0(str) \
 	do { fprintf(stderr, "[istcc] @debug %s %d %s :" str, __FILE__, __LINE__, __FUNCTION__); } while (0)
-#else
-#define DERROR(fmt, args...) \
-	do { fprintf(stderr, "@error %s %d %s [%s] :" fmt, __FILE__, __LINE__, __FUNCTION__, (strerror(errno)), ##args); } while (0)
-
-
-#define DPRINT(fmt, args...) \
-	do { fprintf(stderr, "@debug %s %d %s :" fmt, __FILE__, __LINE__, __FUNCTION__, ##args); } while (0)
-#endif
-
 
 #define SURE_STR(str) \
 		if (!(str) || !(*(str))) { DPRINT("%s == NULL, return\n", #str); return -1; }

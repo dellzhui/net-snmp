@@ -1360,8 +1360,9 @@ int cmd_handle_ip_get_addr(cmd_t * this, int argc, char **argv)
         printf("get interface %s addr failed\n", argv[0]);
         return -1;
     }
-
+#ifndef ISTC_USE_SNMP
     addr = ntohl(addr);
+#endif    
 
     printf("interface %s addr is %s\n", argv[0],
            inet_ntoa(*(struct in_addr *) &addr));
@@ -1408,9 +1409,9 @@ int cmd_handle_ip_get_mask(cmd_t * this, int argc, char **argv)
         printf("get interface %s addr failed\n", argv[0]);
         return -1;
     }
-
+#ifndef ISTC_USE_SNMP
     addr = ntohl(addr);
-
+#endif
     printf("interface %s netmask is %s\n", argv[0],
            inet_ntoa(*(struct in_addr *) &addr));
 
@@ -2107,7 +2108,7 @@ int cmd_handle_ap_get_sta(cmd_t * this, int argc, char **argv)
     int cnt = 128;
     unsigned char *m;
 
-    if (argc != 1) {
+    if (argc < 2) {
         cmd_handle_help(this, argc, argv);
         return -1;
     }
@@ -2489,8 +2490,9 @@ char *cmd_htoa(unsigned int ip)
     if (!ip) {
         return "";
     }
-
+#ifndef ISTC_USE_SNMP
     ip = htonl(ip);
+#endif    
 
     return (inet_ntoa(*(struct in_addr *) &ip));
 }
@@ -2941,8 +2943,8 @@ int cmd_handle_route_set_default(cmd_t * this, int argc, char **argv)
 
 int cmd_handle_dns_get_dns(cmd_t * this, int argc, char **argv)
 {
-    unsigned int primary;
-    unsigned int secondary;
+    unsigned int primary = 0;
+    unsigned int secondary = 0;
 
     if (istc_dns_address_get(&primary, &secondary) != 0) {
         printf("get dns failed\n");
@@ -4222,22 +4224,22 @@ void usage()
 
 int main(int argc, char *argv[])
 {
-    unsigned int addr = 0;
     int opt;
-    unsigned short port = -1;
     char *script_name = NULL;
     cmd_args_t *cmd_args = NULL;
     int ret;
 #ifndef ISTC_USE_SNMP
+    unsigned int addr = 0;
+    unsigned short port = -1;
     char *msg = "hello world!";
 #endif    
-
     int i;
 
     istc_snmp_init();
     
     while ((opt = getopt(argc, argv, "s:p:S:h")) != -1) {
         switch (opt) {
+#ifndef ISTC_USE_SNMP        
             case 's':
                 inet_aton(optarg, (struct in_addr *) &addr);
                 if (addr == 0) {
@@ -4256,6 +4258,7 @@ int main(int argc, char *argv[])
                 }
                 istc_server_port_set(port);
                 break;
+#endif                
             case 'S':
                 script_name = optarg;
                 break;

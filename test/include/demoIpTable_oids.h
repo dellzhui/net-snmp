@@ -13,8 +13,8 @@ extern "C" {
 
 
 /* column number definitions for table demoIpTable */
-#define DEMOIPTABLE_OID              1,3,6,1,4,1,12345,1,1
-
+#define DEMOIPTABLE_OID              1,3,6,1,4,1,12345,1,1,1
+#define DEMOIPENTRY_OID              1
 
 #define COLUMN_DEMOIPINDEX         1
     

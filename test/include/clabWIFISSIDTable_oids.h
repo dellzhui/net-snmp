@@ -14,7 +14,7 @@ extern "C" {
 
 /* column number definitions for table clabWIFISSIDTable */
 #define CLABWIFISSIDTABLE_OID              1,3,6,1,4,1,4491,2,5,1,1,4
-
+#define CLABWIFISSIDENTRY_OID              1
 
 #define COLUMN_CLABWIFISSIDID         1
     

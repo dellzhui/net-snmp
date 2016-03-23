@@ -43,7 +43,6 @@ modification history
 #include <arpa/inet.h>
 #include <pthread.h>
 
-
 #include "istc.h"
 #include "istc_protocol.h"
 #include "istc_log.h"
@@ -51,27 +50,69 @@ modification history
 #include "snmp_interface.h"
 
 
-#define ISTC_TIMEOUT_DEFAULT	(6)
+#define BUSYBOX_FILE "/tmp/busybox"
+#define DNSINFO_SCRIPT "/system/bin/dnsinfo.script"
+#define DNSINFO_FILE "/tmp/dnsinfo.txt"
+#define ISTC_NOTSUPPORT istc_log("not support now\n");
+#define ISTC_WIRELESS_AP_STA_COUNT_MAX 64
 
-#define ISTC_ASYNC_CALLBACK_MAX (4)
+static istc_ap_ssid_t gSNMPWIFISSID[ISTC_AP_SSID_TYPE_MAX];
+static int gSNMPWifiInterfaceCount = 0;
+
+unsigned int istc_now_time_ms(void)
+{
+    struct timeval tv;
+    struct  timezone   tz;
+    unsigned int nowtime = 0;
+
+    gettimeofday(&tv,&tz);
+    nowtime = tv.tv_sec * 1000 + tv.tv_usec / 1000000;
+    return nowtime;
+}
+
+int istc_inet_itoa(int value, char *str, int len)
+{
+    char *buf = NULL;
+    int index = 0, num_len = 0;
+
+    SNMP_ASSERT(value >= 0 && str != NULL && len > 0);
+
+    memset(str, 0, len);
+    if(value == 0)
+    {
+        strcpy(str, "0");
+        return 0;
+    }
+
+    if((buf = (char *)calloc(1, len + 1)) == NULL)
+    {
+        istc_log("can not calloc\n");
+        return -1;
+    }
+
+    while(value > 0)
+    {
+        *(buf + index) = value % 10 + '0';
+        value /= 10;
+        if(++index > len)
+        {
+            istc_log("%d is too short\n", len);
+            free(buf);
+            return -1;
+        }
+    }
+    num_len = index;
+    index = 0;
+    while(index < num_len)
+    {
+        *(str + index) = buf[num_len - index - 1];
+        index++;
+    }
+    free(buf);
+    return 0;
+}
 
 
-
-typedef struct istc_async_desc_s {
-    istc_async_callback_t callback[ISTC_ASYNC_CALLBACK_MAX];
-    int sock;
-    pthread_t tid;
-    pthread_rwlock_t rwlock;
-} istc_async_desc_t;
-
-
-static unsigned int g_istc_seq = 1;
-static unsigned int g_istcd_addr = 0;
-static unsigned short g_istcd_port = ISTC_DEFAULT_PORT;
-
-
-//#ifndef ISTC_USE_SNMP
-#if 1
 const char *istc_inet_ntoa(unsigned int ip, char *buff, int size)
 {
     *buff = '\0';
@@ -81,11 +122,10 @@ const char *istc_inet_ntoa(unsigned int ip, char *buff, int size)
 
 const char *istc_inet_htoa(unsigned int host, char *buff, int size)
 {
-    unsigned int ip = htonl(host);
 
     *buff = '\0';
 
-    return inet_ntop(AF_INET, &ip, buff, size);
+    return inet_ntop(AF_INET, &host, buff, size);
 }
 
 int istc_inet_aton(const char *str, unsigned int *ip)
@@ -110,1457 +150,390 @@ int istc_inet_atoh(const char *str, unsigned int *ip)
 }
 
 
-
-int istc_server_addr_set(unsigned int addr)
-{
-    g_istcd_addr = addr;
-
-    return 0;
-}
-
-int istc_server_port_set(unsigned short port)
-{
-    g_istcd_port = port;
-
-    return 0;
-}
-
-
-int istc_server_addr_get(unsigned int *addr)
-{
-    if (!addr) {
-        DPRINT("addr is NULL\n");
-        return -1;
-    }
-
-    *addr = g_istcd_addr;
-
-    return 0;
-}
-
-static int istc_client_open()
-{
-    int sock;
-
-    struct sockaddr_in addr;
-    int on;
-
-    if (g_istcd_addr == 0) {
-        g_istcd_addr = INADDR_LOOPBACK;
-    }
-
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        DERROR("socket create error!\n");
-        return -1;
-    }
-
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on)) != 0) {
-        DERROR("setsockopt SO_REUSEADDR failed\n");
-    }
-#if 0
-    struct linger lngr;
-    memset(&lngr, 0, sizeof (struct linger));
-    lngr.l_onoff = 1;
-    lngr.l_linger = 0;
-
-    if (setsockopt(sock, SOL_SOCKET, SO_LINGER, &lngr, sizeof (struct linger))
-        != 0) {
-        DERROR("setsockopt SO_LINGER failed\n");
-    }
-#endif
-
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(g_istcd_addr);
-    addr.sin_port = htons(g_istcd_port);
-
-    if (connect(sock, (struct sockaddr *) &addr, sizeof (struct sockaddr_in)) ==
-        -1) {
-        DERROR("connect to server failed\n");
-        close(sock);
-        return -1;
-    }
-
-    //DPRINT("XXXX socket new    %d\n", sock);
-
-    return sock;
-}
-
-static void istc_client_close(int sock)
-{
-    if (sock >= 0) {
-        //DPRINT("XXXX socket close %d\n", sock);
-        shutdown(sock, SHUT_RDWR);
-        close(sock);
-        usleep(2000);
-    }
-}
-
-static int istc_socket_nonblock(int fd)
-{
-    int flags;
-
-    if ((flags = fcntl(fd, F_GETFL)) == -1) {
-        DERROR("fcntl F_GETFL fail\n");
-        return -1;
-    }
-#if 0
-    if (flags & O_NONBLOCK) {
-        /* already non blocked */
-        return 0;
-    }
-#endif
-    flags |= O_NONBLOCK;
-
-    if (fcntl(fd, F_SETFL, flags) == -1) {
-        DERROR("fcntl F_SETFL fail\n");
-        return -1;
-    }
-
-    return 0;
-}
-
-static int istc_recv_timeout(int sock, void *buff, int size, int timeout)
-{
-    fd_set rdset;
-    struct timeval time_val;
-    int ret = -1;
-    int offset = 0;
-    int errno_local;
-
-    if (timeout <= 0) {
-        time_val.tv_sec = ISTC_TIMEOUT_DEFAULT;
-        time_val.tv_usec = 0;
-    } else {
-        time_val.tv_sec = timeout;
-        time_val.tv_usec = 0;
-    }
-
-    istc_socket_nonblock(sock);
-
-    FD_ZERO(&rdset);
-    FD_SET(sock, &rdset);
-
-    if ((ret = select(sock + 1, &rdset, NULL, NULL, &time_val)) == -1) {
-        DERROR("select error\n");
-        return -1;
-    }
-
-    if (ret == 0) {
-        DPRINT("recv timeout\n");
-        return -1;
-    }
-
-    ret = -1;
-    if (FD_ISSET(sock, &rdset)) {
-        while (1) {
-            if ((ret = recv(sock, buff + offset, size - offset, 0)) == -1) {
-                errno_local = errno;
-                if (errno_local == EAGAIN || errno_local == EWOULDBLOCK) {
-                    /* no data any more in socket buffer */
-                    return offset;
-                }
-                DERROR("recv error\n");
-                return -1;
-            }
-            if (ret == 0) {
-                /* server close the connection */
-                return offset;
-            }
-            offset += ret;
-            if (size == offset) {
-                /* all data was received, return now */
-                return offset;
-            }
-            /* wait a moument, and try to receive more data */
-            usleep(100000);     /* 0.1s */
-        }
-
-    }
-
-    return ret;
-}
-
-
-#define SURE_OPEN(sock) \
-	if (((sock) = istc_client_open()) == -1) { DERROR("failed, return\n"); return -1; }
-
-#define SURE_SENDN(sock, buff, size, ret) \
-	do { \
-		int __ret; \
-		__ret = send((sock), (buff), (size), MSG_NOSIGNAL); \
-		if (__ret == -1) { \
-			DERROR("send error, return\n"); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-		if (__ret != (size)) { \
-			DPRINT("send trancated, expect %d, send %d\n", (int)(size), __ret); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-	} while (0)
-
-
-#define SURE_RECVN(sock, buff, size, ret) \
-	do { \
-		int __ret; \
-		__ret = istc_recv_timeout((sock), (buff), (size), 0); \
-		if (__ret == -1) { \
-			DPRINT("recv error, return\n"); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-		if (__ret != (size)) { \
-			DPRINT("recv trancated, expect %d, recv %d, return\n", (int)(size), __ret); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-		(ret) = __ret; \
-	} while (0)
-
-#define SURE_RECVN_TIMEOUT(sock, buff, size, timeout, ret) \
-	do { \
-		int __ret; \
-		__ret = istc_recv_timeout((sock), (buff), (size), (timeout)); \
-		if (__ret == -1) { \
-			DPRINT("recv error, return\n"); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-		if (__ret != (size)) { \
-			DPRINT("recv trancated, expect %d, recv %d, return\n", (int)(size), __ret); \
-			istc_client_close((sock)); \
-			return -1; \
-		} \
-		(ret) = __ret; \
-	} while (0)        
-
-#define SURE_RESP(s, h, c, m, x) \
-	do { \
-		if (h->seq != (x) || h->class != htons(c) || h->command != htons(m)) { \
-			DPRINT("response not match, return\n"); \
-			istc_client_close(s); \
-			return -1; \
-		} \
-	} while (0)
-
-
-
-#define FILL_HEAD(h, c, m, l, s) \
-	do { \
-		h->version = ISTC_PROTOCOL_VERSION; \
-		h->type = ISTC_MSG_TYPE_REQUEST; \
-		s = g_istc_seq++; \
-		h->seq = htonl(s); \
-		h->class = htons(c); \
-		h->command = htons(m); \
-		h->length = htons(l); \
-	} while (0)
-#else
-#define SURE_OPEN(sock)
-#define SURE_SENDN(sock, buff, size, ret)
-#define SURE_RECVN(sock, buff, size, ret)
-#define SURE_RECVN_TIMEOUT(sock, buff, size, timeout, ret)
-#define SURE_RESP(s, h, c, m, x)
-#define FILL_HEAD(h, c, m, l, s)
-#endif
-
 int istc_interface_ipaddr_get(const char *ifname, unsigned int *ipaddr)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    ISTC_SNMP_RESPONSE_ERRSTAT status = ISTC_SNMP_ERR_UNKNOWN;
+    int index = 0, ifindex = 0;
+    int getflag = 0;
 
-    SURE_STR(ifname);
+    oid ipAdEntAddr[] = {IPADDRTABLE_OID, IPADDRENTRY_OID, COLUMN_IPADENTADDR};
+    size_t ipAdEntAddr_len = OID_LENGTH(ipAdEntAddr);
+    oid ipAdEntIfIndex[] = {IPADDRTABLE_OID, IPADDRENTRY_OID, COLUMN_IPADENTIFINDEX};
+    size_t ipAdEntIfIndex_len = OID_LENGTH(ipAdEntIfIndex);
 
-    SURE_PTR(ipaddr);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR,
-              sizeof (istc_class_ip_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ip_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-
-    head->rc = ntohl(head->rc);
-
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_ip_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *ipaddr = ntohl(data->u.ipaddr);
-            //DPRINT("recv ipaddr 0x%x\n", *ipaddr);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    SNMP_ASSERT(ipaddr != NULL);
+    
+    if(istc_snmp_walk(ipAdEntIfIndex, ipAdEntIfIndex_len, &pdu_head, &status) != ISTC_SNMP_SUCCESS)
+    {
+        istc_log("can not get ipaddr\n");
+        return -1;
     }
+    istc_snmp_print_pdulist(pdu_head, ipAdEntIfIndex, ipAdEntIfIndex_len);
+    pdu_list = pdu_head;
+    while(pdu_list != NULL && getflag == 0)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, ipAdEntIfIndex, ipAdEntIfIndex_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            index++;
+            if(*(vars->val.integer) == WAN_INTERFACE_INDEX)
+            {
+                istc_log("get index success\n");
+                getflag = 1;
+                break;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    if(getflag == 0)
+    {
+        istc_log("get index failed\n");
+        istc_snmp_free_pdulist(pdu_head);
+        return -1;
+    }
+    ifindex = index;
+    index = 0;
 
-    istc_client_close(sock);
-
-    return ret;
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+     if(istc_snmp_walk(ipAdEntAddr, ipAdEntAddr_len, &pdu_head, &status) != ISTC_SNMP_SUCCESS)
+    {
+        istc_log("can not get ipaddr\n");
+        return -1;
+    }
+    pdu_list = pdu_head;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, ipAdEntAddr, ipAdEntAddr_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if(++index == ifindex)
+            {
+                *ipaddr = *(vars->val.integer);
+                istc_snmp_print_pdulist(pdu_list, ipAdEntAddr, ipAdEntAddr_len);
+                istc_snmp_free_pdulist(pdu_head);
+                istc_log("get ipaddr success\n");
+                return 0;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    istc_log("get ipaddr failed\n");
+    return -1;
 }
 
 
 int istc_interface_netmask_get(const char *ifname, unsigned int *netmask)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    ISTC_SNMP_RESPONSE_ERRSTAT status = ISTC_SNMP_ERR_UNKNOWN;
+    int index = 0, ifindex = 0;
+    int getflag = 0;
 
-    SURE_STR(ifname);
+    oid ipAdEntIfIndex[] = {IPADDRTABLE_OID, IPADDRENTRY_OID, COLUMN_IPADENTIFINDEX};
+    size_t ipAdEntIfIndex_len = OID_LENGTH(ipAdEntIfIndex);
+    oid ipAdEntNetMask[] = {IPADDRTABLE_OID, IPADDRENTRY_OID, COLUMN_IPADENTNETMASK};
+    size_t ipAdEntNetMask_len = OID_LENGTH(ipAdEntNetMask);
 
-    SURE_PTR(netmask);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_NETMASK,
-              sizeof (istc_class_ip_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ip_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_ip_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *netmask = ntohl(data->u.netmask);
-            //DPRINT("recv netmask 0x%x\n", *netmask);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    SNMP_ASSERT(netmask != NULL);
+    
+    if(istc_snmp_walk(ipAdEntIfIndex, ipAdEntIfIndex_len, &pdu_head, &status) != ISTC_SNMP_SUCCESS)
+    {
+        istc_log("can not get ipaddr\n");
+        return -1;
     }
+    pdu_list = pdu_head;
+    while(pdu_list != NULL && getflag == 0)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, ipAdEntIfIndex, ipAdEntIfIndex_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            index++;
+            if(*(vars->val.integer) == WAN_INTERFACE_INDEX)
+            {
+                istc_log("get index success\n");
+                getflag = 1;
+                break;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    if(getflag == 0)
+    {
+        istc_log("get index failed\n");
+        istc_snmp_free_pdulist(pdu_head);
+        return -1;
+    }
+    ifindex = index;
+    index = 0;
 
-    istc_client_close(sock);
-
-    return ret;
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+     if(istc_snmp_walk(ipAdEntNetMask, ipAdEntNetMask_len, &pdu_head, &status) != ISTC_SNMP_SUCCESS)
+    {
+        istc_log("can not get netmask\n");
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_log("ifindex = %d\n", ifindex);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, ipAdEntNetMask, ipAdEntNetMask_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if(++index == ifindex)
+            {
+                *netmask = *(vars->val.integer);
+                istc_snmp_print_pdulist(pdu_list, ipAdEntNetMask, ipAdEntNetMask_len);
+                istc_snmp_free_pdulist(pdu_head);
+                istc_log("get netmask success\n");
+                return 0;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    istc_log("get netmask failed\n");
+    return -1;
 }
+
 
 int istc_interface_addr_mode_get(const char *ifname, int *mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(mode);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_ADDR_MODE,
-              sizeof (istc_class_ip_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ip_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_ip_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *mode = ntohl(data->u.addr_mode);
-            //DPRINT("recv addr_mode 0x%x\n", *mode);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_interface_ipaddr_set(const char *ifname, unsigned int ipaddr)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_SET_IPADDR,
-              sizeof (istc_class_ip_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    data->u.ipaddr = htonl(ipaddr);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ip_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        ret = head->rc;
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_interface_netmask_set(const char *ifname, unsigned int netmask)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    unsigned int mask = (netmask);
-    mask = ~mask + 1;
-    if ((mask & (mask - 1)) != 0) {
-        DPRINT("netmask 0x%x format error\n", netmask);
-        return -1;
-    }
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_SET_NETMASK,
-              sizeof (istc_class_ip_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    data->u.netmask = htonl(netmask);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ip_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_interface_addr_mode_set(const char *ifname, int mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ip_cmd_data_t *data = (istc_class_ip_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    if (mode <= ISTC_INTERFACE_ADDR_MODE_UNKNOWN
-        || mode >= ISTC_INTERFACE_ADDR_MODE_MAX) {
-        DPRINT("mode unknown %d\n", mode);
-        return -1;
-    }
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_SET_ADDR_MODE,
-              sizeof (istc_class_mac_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    data->u.addr_mode = htonl(mode);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_mac_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_interface_mac_get(const char *ifname, unsigned char *mac)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_mac_cmd_data_t *data = (istc_class_mac_cmd_data_t *) (head + 1);
+    SNMP_DATA_LIST_st *data_head = NULL;
+    int cnt = 0;
 
-    SURE_STR(ifname);
+    oid ifPhysAddress[] = {IFTABLE_OID, IFENTRY_OID, COLUMN_IFPHYSADDRESS, WAN_INTERFACE_INDEX};
+    size_t ifPhysAddress_len = OID_LENGTH(ifPhysAddress);
+    
+    SNMP_ASSERT(mac != NULL);
 
-    SURE_PTR(mac);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MAC, ISTC_CLASS_MAC_CMD_GET_MAC,
-              sizeof (istc_class_mac_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_mac_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_mac_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            memcpy(mac, data->u.mac, 6);
-
-            /*DPRINT("recv mac %02x:%02x:%02x:%02x:%02x:%02x\n", 
-             * mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]); */
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    if(istc_snmp_table_parse_datalist(ifPhysAddress, ifPhysAddress_len, (SnmpTableFun)_ifTable_set_column, sizeof(ifTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse ifPhysAddress\n");
+        return -1;
     }
-
-    istc_client_close(sock);
-
-    return ret;
+    istc_log("parse ifPhysAddress success\n");
+    memcpy(mac, ((ifTable_rowreq_ctx *)(data_head->data))->data.ifPhysAddress, 6);
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+    istc_log("get mac success\n");
+    return 0;
 }
+
 
 int istc_interface_mac_set(const char *ifname, const unsigned char *mac)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_mac_cmd_data_t *data = (istc_class_mac_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(mac);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MAC, ISTC_CLASS_MAC_CMD_SET_MAC,
-              sizeof (istc_class_mac_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    memcpy(data->u.mac, mac, 6);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_mac_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
+int istc_interface_totalflow_get(const char *ifname, unsigned int *up_flow, unsigned int *down_flow)
+{
+    SNMP_DATA_LIST_st *data_head = NULL;
+    clabWIFIRadioStatsTable_rowreq_ctx *ctx = NULL;
+    int cnt = 0;
+    int ifIndex = 0;
 
+    oid clabWIFIRadioStatsBytesSent[] = {CLABWIFIRADIOSTATSTABLE_OID, CLABWIFIRADIOSTATSENTRY_OID, COLUMN_CLABWIFIRADIOSTATSBYTESSENT, 0};
+    size_t clabWIFIRadioStatsBytesSent_len = OID_LENGTH(clabWIFIRadioStatsBytesSent);
+    oid clabWIFIRadioStatsBytesReceived[] = {CLABWIFIRADIOSTATSTABLE_OID, CLABWIFIRADIOSTATSENTRY_OID, COLUMN_CLABWIFIRADIOSTATSBYTESRECEIVED, 0};
+    size_t clabWIFIRadioStatsBytesReceived_len = OID_LENGTH(clabWIFIRadioStatsBytesReceived);
+    
+    SNMP_ASSERT(ifname != NULL && *ifname != 0);
+    SNMP_ASSERT(up_flow != NULL && down_flow != NULL);
 
+    if(strcmp(ifname, "wlan0") == 0)
+    {
+        ifIndex = WLAN0_INTERFACE_INDEX;
+    }
+    else if(strcmp(ifname, "wlan1") == 0)
+    {
+        ifIndex = WLAN1_INTERFACE_INDEX;
+    }
 
+    clabWIFIRadioStatsBytesSent[clabWIFIRadioStatsBytesSent_len - 1] = ifIndex;
+    clabWIFIRadioStatsBytesReceived[clabWIFIRadioStatsBytesReceived_len - 1] = ifIndex;
 
+    /*get rx*/
+    if(istc_snmp_table_parse_datalist(clabWIFIRadioStatsBytesSent, clabWIFIRadioStatsBytesSent_len, (SnmpTableFun)_clabWIFIRadioStatsTable_set_column, sizeof(clabWIFIRadioStatsTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse clabWIFIRadioStatsBytesSent\n");
+        return -1;
+    }
+    istc_log("parse clabWIFIRadioStatsBytesSent success\n");
+    ctx = (clabWIFIRadioStatsTable_rowreq_ctx *)data_head->data;
+    *down_flow = (((unsigned long long)(ctx->data.clabWIFIRadioStatsBytesSent.high) << 32) | (unsigned long long)ctx->data.clabWIFIRadioStatsBytesSent.low) / 1024;
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+
+    /*get tx*/
+    if(istc_snmp_table_parse_datalist(clabWIFIRadioStatsBytesReceived, clabWIFIRadioStatsBytesReceived_len, (SnmpTableFun)_clabWIFIRadioStatsTable_set_column, sizeof(clabWIFIRadioStatsTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse clabWIFIRadioStatsBytesReceived\n");
+        return -1;
+    }
+    istc_log("parse clabWIFIRadioStatsBytesReceived success\n");
+    ctx = (clabWIFIRadioStatsTable_rowreq_ctx *)data_head->data;
+    *up_flow = (((unsigned long long)(ctx->data.clabWIFIRadioStatsBytesReceived.high) << 32) | (unsigned long long)ctx->data.clabWIFIRadioStatsBytesReceived.low) / 1024;
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+
+    return 0;
+}
 
 
 int istc_link_state_get(const char *ifname, int *state)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_link_cmd_data_t *data =
-        (istc_class_link_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(state);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_LINK, ISTC_CLASS_LINK_CMD_GET_LINK_STATE,
-              sizeof (istc_class_link_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_link_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_link_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *state = ntohl(data->data);
-
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_link_admin_state_get(const char *ifname, int *state)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_link_cmd_data_t *data =
-        (istc_class_link_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(state);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_LINK, ISTC_CLASS_LINK_CMD_GET_ADMIN_STATE,
-              sizeof (istc_class_link_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_link_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_link_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *state = ntohl(data->data);
-
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_link_mtu_get(const char *ifname, int *state)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_link_cmd_data_t *data =
-        (istc_class_link_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(state);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_LINK, ISTC_CLASS_LINK_CMD_GET_LINK_MTU,
-              sizeof (istc_class_link_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_link_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_link_cmd_data_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *state = ntohl(data->data);
-
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_link_admin_state_set(const char *ifname, int state)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_link_cmd_data_t *data =
-        (istc_class_link_cmd_data_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    if (state < ISTC_LINK_ADMIN_STATE_DOWN || state >= ISTC_LINK_STATE_MAX) {
-        DPRINT("admin state %d not support\n", state);
-        return -1;
-    }
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_LINK, ISTC_CLASS_LINK_CMD_SET_ADMIN_STATE,
-              sizeof (istc_class_link_cmd_data_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    data->data = htonl(state);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_link_cmd_data_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_wireless_mode_get(const char *ifname, int *mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_misc_cmd_wireless_mode_get_t *data = (istc_class_misc_cmd_wireless_mode_get_t *) (head + 1);
-    printf("istc_wireless_mode_get %s \n", ifname);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(mode);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_WIRELESS_MODE_GET,
-              sizeof (istc_class_misc_cmd_wireless_mode_get_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_misc_cmd_wireless_mode_get_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    head->rc = ntohl(head->rc);
-
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_misc_cmd_wireless_mode_get_t)) {
-
-            SURE_RECVN(sock, data, length, ret);
-
-            *mode = ntohl(data->mode);
-            //DPRINT("recv ipaddr 0x%x\n", *ipaddr);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-    
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_ssid_scan(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_scan_t *data = (istc_class_sta_scan_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_SCAN,
-              sizeof (istc_class_sta_scan_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_scan_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_async_wireless_sta_ssid_scan(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_scan_t *data = (istc_class_sta_scan_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_SCAN_ASYNC,
-              sizeof (istc_class_sta_scan_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_scan_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_scan_result_get(const char *ifname,
                                       istc_sta_ssid_t * result, int *pcnt)
 {
-    int sock = -1;
-    int ret = -1;
-    int seq;
-    int length;
-    int cnt = 0;
-    int cnt_ret = 0;
-    char buff[2048] = { 0 };    /* Warrning: can not alloc stack buffer large than 4096 !!! */
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_get_ssid_t *data = (istc_class_sta_get_ssid_t *) (head + 1);
-
-
-    SURE_STR(ifname);
-
-    SURE_PTR(result);
-
-    SURE_PTR(pcnt);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_GET_SCAN_RESULT,
-              sizeof (istc_class_sta_get_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_get_ssid_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        if (length > 0) {
-            int timeout = 4;
-            data = (istc_class_sta_get_ssid_t *) buff;
-
-            ret = istc_recv_timeout(sock, buff, sizeof (buff), timeout);
-            istc_client_close(sock);    /* close the socket first */
-            sock = -1;
-            if (ret < 0) {
-                DPRINT("recv error\n");
-                return -1;
-            } else if (ret == 0) {
-                DPRINT("server closed the connection\n");
-                *pcnt = 0;
-                return 0;
-            }
-
-            /* calculate the returned bytes and count */
-            cnt =
-                (ret -
-                 sizeof (istc_class_sta_get_ssid_t)) / sizeof (istc_sta_ssid_t);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("real recved %d, expect %d\n", cnt, cnt_ret);      
-            if (cnt_ret != cnt) {
-                DPRINT("Warning, recv trancated!\n");
-            }
-
-            if (*pcnt < cnt) {
-                cnt = *pcnt;
-            }
-            /* copy to result */
-            int i;
-            istc_sta_ssid_t *ptr =
-                (istc_sta_ssid_t *) (buff + sizeof (istc_class_sta_get_ssid_t));
-            for (i = 0; i < cnt; i++, result++, ptr++) {
-                strncpy(result->ssid, ptr->ssid, ISTC_SSID_NAME_SIZE);
-                strncpy(result->mac, ptr->mac, sizeof (ptr->mac));
-                result->channel = ntohl(ptr->channel);
-                result->signal = ntohl(ptr->signal);
-                result->encryption = ntohl(ptr->encryption);
-            }
-        } else {
-            DPRINT("server say no error, but none ssid scaned\n");
-            istc_client_close(sock);
-            sock = -1;
-        }
-
-        ret = 0;
-        *pcnt = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-        istc_client_close(sock);  /* be sure close the socket */
-        sock = -1;
-    }
-
-    if (sock >= 0) {
-        istc_client_close(sock);  /* just for error check */
-    }
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_state_get(const char *ifname, int *state,
                                 istc_sta_ssid_t * ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_state_t *data = (istc_class_sta_state_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_PTR(ssid);
-
-    memset(ssid, 0, sizeof (istc_sta_ssid_t));
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_GET_STATE,
-              sizeof (istc_class_sta_state_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_state_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_sta_state_t), ret);
-        *state = ntohl(data->state);
-        memcpy(ssid, &data->ssid, sizeof (istc_sta_ssid_t));
-        ssid->channel = ntohl(ssid->channel);
-        ssid->signal = ntohl(ssid->signal);
-        ssid->encryption = ntohl(ssid->encryption);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_ssid_add(const char *ifname, const char *ssid,
                                const char *password)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_add_ssid_t *data = (istc_class_sta_add_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_STR(ssid);
-
-    if (password) {
-        int password_len = strlen(password);
-        if (password_len < 8) {
-            DPRINT("password length should no less than 8 characters!\n");
-            return -1;
-        }
-    } else {
-        DPRINT("note: no password is used!\n");
-    }
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_ADD_SSID,
-              sizeof (istc_class_sta_add_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-    if (password) {
-        strncpy(data->pswd, password, ISTC_SSID_PSWD_SIZE);
-    } else {
-        data->pswd[0] = '\0';
-    }
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_add_ssid_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_ssid_add2(const char *ifname, const char *ssid,
                                 const char *password, int encryption)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_add2_ssid_t *data =
-        (istc_class_sta_add2_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    SURE_STR(ssid);
-
-    if (encryption == ISTC_WIRELESS_ENCRYPTION_WPA2 ||
-        encryption == ISTC_WIRELESS_ENCRYPTION_WPA ||
-        encryption == ISTC_WIRELESS_ENCRYPTION_WPA_WPA2) {
-        if (!password || !*password) {
-            DPRINT("password is null!\n");
-            return -1;
-        }
-        if (strlen(password) < 8) {
-            DPRINT("password length should no less than 8 characters!\n");
-            return -1;
-        }
-    } else if (encryption == ISTC_WIRELESS_ENCRYPTION_WEP) {
-		if (!password || !*password) {
-            DPRINT("password is null!\n");
-            return -1;
-        }
-    } else if (encryption != ISTC_WIRELESS_ENCRYPTION_OPEN) {
-        DPRINT("encryption type %d not supported\n", encryption);
-        return -1;
-    }
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_ADD2_SSID,
-              sizeof (istc_class_sta_add2_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-    if (password) {
-        strncpy(data->pswd, password, ISTC_SSID_PSWD_SIZE);
-    } else {
-        data->pswd[0] = '\0';
-    }
-    data->encryption = htonl(encryption);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_add2_ssid_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_wireless_sta_ssid_remove(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_del_ssid_t *data = (istc_class_sta_del_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_REMOVE_SSID,
-              sizeof (istc_class_sta_del_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_del_ssid_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_ssid_enable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_enable_ssid_t *data =
-        (istc_class_sta_enable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_ENABLE_SSID,
-              sizeof (istc_class_sta_enable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_enable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_sta_ssid_disable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_disable_ssid_t *data =
-        (istc_class_sta_disable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_DISABLE_SSID,
-              sizeof (istc_class_sta_disable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_disable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_async_wireless_sta_ssid_enable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_enable_ssid_t *data =
-        (istc_class_sta_enable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_ENABLE_SSID_ASYNC,
-              sizeof (istc_class_sta_enable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_enable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_async_wireless_sta_ssid_disable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_sta_disable_ssid_t *data =
-        (istc_class_sta_disable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_STA_CMD_DISABLE_SSID_ASYNC,
-              sizeof (istc_class_sta_disable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_sta_disable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
@@ -1569,630 +542,573 @@ int istc_async_wireless_sta_ssid_disable(const char *ifname, const char *ssid)
 int istc_wireless_ap_ssid_get(const char *ifname, istc_ap_ssid_t * ssid,
                               int *count)
 {
-    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
-    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
-    wifiBssTable_rowreq_ctx *bss_ctx = NULL;
-    wifiBssWpaTable_rowreq_ctx *bsswpa_ctx = NULL;
-    int row = 0, row_min = -1, row_max = 0;
-    istc_ap_ssid_t *ap_ssid = NULL;
-    int cnt = 0;
-    
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
-    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
-    
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID};
-    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE};
-    size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
-    
-    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY};
-    size_t wifiBssWpaPreSharedKey_len = OID_LENGTH(wifiBssWpaPreSharedKey);
-    
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL);
-    
-    istc_log("ifname = %s\n", ifname);
-    
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse clabWIFISSIDName\n");
-        return -1;
-    }
-    istc_log("parse clabWIFISSIDName success\n");
-    data_list= data_head; 
-    while(data_list != NULL)
-    {
-        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strstr(ssid_ctx->data.clabWIFISSIDName, ifname) != NULL)
-        {
-            row = data_list->row;
-            row_min = (row_min < 0) ? row : row_min;
-            row_max = (row_max < row) ? row : row_max;
-            istc_log("ifname = %s\n", ssid_ctx->data.clabWIFISSIDName);
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-    
-    if(row_min < 0 || row_min > row_max)
-    {
-        istc_log("can not get bssid, ifname = %s\n", ifname);
-        return -1;
-    }
-    ap_ssid = (istc_ap_ssid_t *)calloc(row_max - row_min + 1, sizeof(istc_ap_ssid_t));
-    if(ap_ssid == NULL)
-    {
-        istc_log("cn not calloc for ap_ssid\n");
-        return -1;
-    }
-    
-    if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse wifiBssSsid\n");
-        return -1;
-    }
-    istc_log("parse wifiBssSsid success\n");
-    data_list = data_head; 
-    while(data_list != NULL)
-    {
-        bss_ctx = (wifiBssTable_rowreq_ctx *)(data_list->data);
-        if(data_list->row >= row_min && data_list->row <= row_max)
-        {
-            istc_ap_ssid_t *ssid_tmp = &ap_ssid[data_list->row - row_min];
-            strncpy(ssid_tmp->ssid, bss_ctx->data.wifiBssSsid, sizeof(ssid_tmp->ssid) - 1);
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-
-    if(istc_snmp_table_parse_data(wifiBssSecurityMode, wifiBssSecurityMode_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse wifiBssSecurityMode\n");
-        return -1;
-    }
-    istc_log("parse wifiBssSecurityMode success\n");
-    data_list = data_head; 
-    while(data_list != NULL)
-    {
-        bss_ctx = (wifiBssTable_rowreq_ctx *)(data_list->data);
-        if(data_list->row >= row_min && data_list->row <= row_max)
-        {
-            istc_ap_ssid_t *ssid_tmp = &ap_ssid[data_list->row - row_min];
-            switch(bss_ctx->data.wifiBssSecurityMode)
-            {
-            case 0:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_OPEN;
-                break;
-            case 1:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_WEP;
-                break;
-            case 2:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_WPA;
-                break;
-            case 3:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_WPA2;
-                break;
-            case 7:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_WPA_WPA2;
-                break;
-            default:
-                ssid_tmp->encryption = ISTC_WIRELESS_ENCRYPTION_NONE;
-                break;
-            }
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-
-    if(istc_snmp_table_parse_data(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, (SnmpTableFun)_wifiBssWpaTable_set_column, sizeof(wifiBssWpaTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse wifiBssWpaTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse wifiBssWpaTable_rowreq_ctx success\n");
-    data_list = data_head; 
-    while(data_list != NULL)
-    {
-        bsswpa_ctx = (wifiBssWpaTable_rowreq_ctx *)(data_list->data);
-        if(data_list->row >= row_min && data_list->row <= row_max)
-        {
-            istc_ap_ssid_t *ssid_tmp = &ap_ssid[data_list->row - row_min];
-            if(ssid_tmp->encryption != ISTC_WIRELESS_ENCRYPTION_OPEN && ssid_tmp->encryption != ISTC_WIRELESS_ENCRYPTION_NONE)
-            {
-                strncpy(ssid_tmp->password, bsswpa_ctx->data.wifiBssWpaPreSharedKey, sizeof(ssid_tmp->password) - 1);
-            }
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-
-    memset(ssid, 0, *count * sizeof(istc_ap_ssid_t));
-    *count = (row_max - row_min + 1) > *count ? *count : (row_max - row_min + 1);
-    memcpy(ssid, ap_ssid, *count * sizeof(istc_ap_ssid_t));
-    free(ap_ssid);
-    return 0;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 int istc_wireless_ap_ssid_sta_get(const char *ifname, const char *ssid,
                                   istc_ap_sta_t * sta, int *count)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[2048] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_get_sta_t *data = (istc_class_ap_get_sta_t *) (head + 1);
-    int length = 0;
-    int cnt_ret = 0;
-    int cnt = 0;
-
-    SURE_STR(ifname);
-    //SURE_STR(ssid);
-    SURE_PTR(sta);
-    SURE_PTR(count);
-
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_GET_SSID_STA,
-              sizeof (istc_class_ap_get_sta_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    //strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_get_sta_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_ap_get_sta_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *pcnt);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * sizeof (istc_ap_sta_t);
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                istc_ap_sta_t *ptr = (istc_ap_sta_t *) buff;
-                for (i = 0; i < cnt; i++, sta++, ptr++) {
-                    strncpy(sta->sta_name, ptr->sta_name, ISTC_HOST_NAME_SIZE);
-                    sta->sta_ip = ntohl(ptr->sta_ip);
-                    memcpy(sta->sta_mac, ptr->sta_mac, 6);
-                }
-            }
-
-        }
-
-        ret = 0;
-        *count = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-}
-
-int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
-{
     SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
-    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
-    int row = 0;
-    istc_ap_ssid_t ap_ssid;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    dot11BssTable_rowreq_ctx *ctx = NULL;
+    int ssid_index = -1;
     int cnt = 0;
-    ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
-    char *security_mode = NULL;
-    
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
-    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
+    int i = 0, j = 0;
+    int status = -1;
+    istc_ap_sta_t *ap_sta = NULL, *sta_rgIpLanAddrTable = NULL, *sta_wifiAssocStaTable = NULL;
+    int sta_count = 0, sta_rgIpLanAddrTable_count = 0, sta_wifiAssocStaTable_count = 0;;
+    char ip[16] = {0};
+    int ifIndex = 0;
+    int nowtime = 0;
 
-    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
-    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
-    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE, 0};
-    size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
-    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
-    size_t wifiBssWpaPreSharedKey_len = OID_LENGTH(wifiBssWpaPreSharedKey);
-    
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL);
-    SNMP_ASSERT(ssid->ssid[0] != 0);
+    oid dot11BssSsid[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSSSID};
+    size_t dot11BssSsid_len = OID_LENGTH(dot11BssSsid);
 
-    istc_log("ifname = %s\n", ifname);
-    memset(&ap_ssid, 0, sizeof(ap_ssid));
-    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
+    oid clabWIFIAssociatedDeviceMACAddress[] = {CLABWIFIASSOCIATEDDEVICETABLE_OID, CLABWIFIASSOCIATEDDEVICEENTRY_OID, COLUMN_CLABWIFIASSOCIATEDDEVICEMACADDRESS, 0};
+    size_t clabWIFIAssociatedDeviceMACAddress_len = OID_LENGTH(clabWIFIAssociatedDeviceMACAddress);
+
+    oid rgIpLanAddrClientID[] = {RGIPLANADDRTABLE_OID, RGIPLANADDRENTRY_OID, COLUMN_RGIPLANADDRCLIENTID, 0};
+    size_t rgIpLanAddrClientID_len = OID_LENGTH(rgIpLanAddrClientID);
+    oid rgIpLanAddrHostName[] = {RGIPLANADDRTABLE_OID, RGIPLANADDRENTRY_OID, COLUMN_RGIPLANADDRHOSTNAME, 0};
+    size_t rgIpLanAddrHostName_len = OID_LENGTH(rgIpLanAddrHostName);
+
+    oid wifiAssocStaMacAddress[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTAMACADDRESS, 0};
+    size_t wifiAssocStaMacAddress_len = OID_LENGTH(wifiAssocStaMacAddress);
+    oid wifiAssocStaTxBytes[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTATXBYTES, 0};
+    size_t wifiAssocStaTxBytes_len = OID_LENGTH(wifiAssocStaTxBytes);
+    oid wifiAssocStaRxBytes[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTARXBYTES, 0};
+    size_t wifiAssocStaRxBytes_len = OID_LENGTH(wifiAssocStaRxBytes);
+    oid wifiAssocStaTxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTATXRATELIMIT, 0};
+    size_t wifiAssocStaTxRateLimit_len = OID_LENGTH(wifiAssocStaTxRateLimit);
+    oid wifiAssocStaRxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTARXRATELIMIT, 0};
+    size_t wifiAssocStaRxRateLimit_len = OID_LENGTH(wifiAssocStaRxRateLimit);
     
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
+    SNMP_ASSERT(ifname!= NULL && *ifname != 0);
+    SNMP_ASSERT(ssid != NULL && *ssid != 0);
+    SNMP_ASSERT(sta != NULL);
+    SNMP_ASSERT(count != NULL && *count > 0);
+
+    if(istc_init_snmp_wifissid() != 0)
     {
-        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
+        istc_log("can not init snmp index\n");
         return -1;
     }
-    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
-    data_list= data_head; 
+    
+    if(istc_snmp_table_parse_datalist(dot11BssSsid, dot11BssSsid_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSsid\n");
+        return -1;
+    }
+    data_list = data_head;
     while(data_list != NULL)
     {
-        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strcmp(ifname, ssid_ctx->data.clabWIFISSIDName) == 0)
+        ctx = (dot11BssTable_rowreq_ctx *)data_list->data;
+        if(strstr(ctx->data.dot11BssSsid, ssid) != NULL)
         {
-            row = data_list->row;
-            istc_log("find success, ifname = %s, row = %d\n", ifname, row);
-            break;
+            for(i = 0; i < sizeof(gSNMPWIFISSID) / sizeof(gSNMPWIFISSID[0]); i++)
+            {
+                if(strstr(gSNMPWIFISSID[i].ifname, ifname) != NULL)
+                {
+                    ssid_index = data_list->row;
+                    ifIndex = i < 2 ? ssid_index - 1 : ssid_index - 2;
+                    break;
+                }
+            }
+            if(ssid_index >= 0)
+            {
+                istc_log("get ssid_index %d success\n", ssid_index);
+                break;
+            }
         }
         data_list = data_list->next;
     }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-    if(data_list == NULL)
+    if(ssid_index < 0)
     {
-        istc_log("can not get bssid, ifname = %s\n", ifname);
+        istc_log("can not find ssid index, ifname = %s, ssid = %s\n", ifname, ssid);
+        istc_snmp_table_free_datalist(data_head);
         return -1;
     }
+    istc_snmp_table_free_datalist(data_head);
+    data_head= NULL;
 
-    istc_log("ssid->encryption= %d\n", ssid->encryption);
-    switch(ssid->encryption)
-    {
-        case ISTC_WIRELESS_ENCRYPTION_OPEN:
-            security_mode = "0";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WEP:
-            security_mode = "1";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA:
-            security_mode = "2";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA2:
-            security_mode = "3";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA_WPA2:
-            security_mode = "7";
-            break;
-        default:
-            istc_log("unkonwn security mode:%d\n", ssid->encryption);
-            return -1;
-    }
+    clabWIFIAssociatedDeviceMACAddress[clabWIFIAssociatedDeviceMACAddress_len - 1] = ssid_index;
+    rgIpLanAddrClientID[rgIpLanAddrClientID_len - 1] = ssid_index;
+    rgIpLanAddrHostName[rgIpLanAddrHostName_len - 1] = ssid_index;
+    wifiAssocStaMacAddress[wifiAssocStaMacAddress_len - 1] = ifIndex;
+    wifiAssocStaTxBytes[wifiAssocStaTxBytes_len - 1] = ifIndex;
+    wifiAssocStaRxBytes[wifiAssocStaRxBytes_len - 1] = ifIndex;
+    wifiAssocStaTxRateLimit[wifiAssocStaTxRateLimit_len - 1] = ifIndex;
+    wifiAssocStaRxRateLimit[wifiAssocStaRxRateLimit_len - 1] = ifIndex;
 
-    wifiBssEnable[wifiBssEnable_len - 1] = row;
-    wifiBssSsid[wifiBssSsid_len - 1] = row;
-    wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
-    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
-    
-    if(istc_snmp_set(wifiBssSsid, wifiBssSsid_len, 's', (char *)ssid->ssid, &stat) != 0)
+    /*get device mac from clabWIFIAssociatedDeviceTable*/
+    if(istc_snmp_walk(clabWIFIAssociatedDeviceMACAddress, clabWIFIAssociatedDeviceMACAddress_len, &pdu_head, &status) != 0)
     {
-        istc_log("can not set ssid name, ifname = %s\n", ifname);
+        istc_log("can not walk wifiBssAccessStation\n");
         return -1;
     }
-    istc_log("set wifiBssSsid success\n");
-    if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, 'i', (char *)security_mode, &stat) != 0)
+    if(istc_snmp_table_get_rows_num(pdu_head, &sta_count) != 0 || sta_count <= 0)
     {
-        istc_log("can not set ssid security mode, ifname = %s\n", ifname);
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not get sta count from clabWIFIAssociatedDeviceTable\n");
         return -1;
     }
-    istc_log("set wifiBssSecurityMode success\n");
-    if(*security_mode != '0')
+    else
     {
-        if(ssid->password[0] == 0 || strlen(ssid->password) < 8)
+        istc_log("get sta count %d from clabWIFIAssociatedDeviceTable success\n", sta_count);
+    }
+    if((ap_sta = (istc_ap_sta_t *)calloc(sta_count, sizeof(istc_ap_sta_t))) == NULL)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not calloc\n");
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, clabWIFIAssociatedDeviceMACAddress, clabWIFIAssociatedDeviceMACAddress_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_count; vars = vars->next_variable)
         {
-            istc_log("password wrong\n");
-            return -1;
+            if(memcmp(vars->name, clabWIFIAssociatedDeviceMACAddress, clabWIFIAssociatedDeviceMACAddress_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            int len = (sizeof(ap_sta[i].sta_mac) > vars->val_len) ? vars->val_len : sizeof(ap_sta[i].sta_mac);
+            memcpy(ap_sta[i].sta_mac, vars->val.bitstring, len);
+            i++;
         }
-        if(istc_snmp_set(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, 's', (char *)ssid->password, &stat) != 0)
-        {
-            istc_log("can not set password\n");
-            return -1;
-        }
-        istc_log("set wifiBssWpaPreSharedKey success\n");
+        pdu_list = pdu_list->next;
     }
-
-    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "1", &stat) != 0)
+    istc_log("get device mac from clabWIFIAssociatedDeviceTable success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    
+    /*get device ip and mac from rgIpLanAddrTable*/
+    if(istc_snmp_walk(rgIpLanAddrClientID, rgIpLanAddrClientID_len, &pdu_head, &status) != 0)
     {
-        istc_log("can not set bss enable, ifname = %s, ssid_name = %s\n", ifname, ssid->ssid);
+        istc_log("can not walk wifiBssAccessStation\n");
+        free(ap_sta);
         return -1;
     }
-    istc_log("set wifiBssEnable success\n");
+    if(istc_snmp_table_get_rows_num(pdu_head, &sta_rgIpLanAddrTable_count) != 0 || sta_rgIpLanAddrTable_count <= 0)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not get sta count\n");
+        free(ap_sta);
+        return -1;
+    }
+    if((sta_rgIpLanAddrTable = (istc_ap_sta_t *)calloc(sta_rgIpLanAddrTable_count, sizeof(istc_ap_sta_t))) == NULL)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not calloc\n");
+        free(ap_sta);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, rgIpLanAddrClientID, rgIpLanAddrClientID_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, rgIpLanAddrClientID, rgIpLanAddrClientID_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            snprintf(ip, sizeof(ip) - 1, "%d.%d.%d.%d", (int)vars->name[vars->name_length - 4], (int)vars->name[vars->name_length - 3], (int)vars->name[vars->name_length - 2], (int)vars->name[vars->name_length - 1]);
+            istc_inet_aton(ip, &sta_rgIpLanAddrTable[i].sta_ip);
+            int len = (sizeof(sta_rgIpLanAddrTable[i].sta_mac) > vars->val_len) ? vars->val_len : sizeof(sta_rgIpLanAddrTable[i].sta_mac);
+            memcpy(sta_rgIpLanAddrTable[i].sta_mac, vars->val.bitstring, len);
+            istc_log("get devices ip %s, index:%d\n", ip, i);
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device ip and mac from rgIpLanAddrTable success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*get device name from rgIpLanAddrTable*/
+    if(istc_snmp_walk(rgIpLanAddrHostName, rgIpLanAddrHostName_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiBssAccessStation\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, rgIpLanAddrHostName, rgIpLanAddrHostName_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_rgIpLanAddrTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, rgIpLanAddrHostName, rgIpLanAddrHostName_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            int len = (sizeof(sta_rgIpLanAddrTable[i].sta_name) - 1 > vars->val_len) ? vars->val_len : sizeof(sta_rgIpLanAddrTable[i].sta_name) - 1;
+            strncpy(sta_rgIpLanAddrTable[i].sta_name, (char *)(vars->val.string), len);
+            istc_log("get device name [%s], index: %d\n", sta_rgIpLanAddrTable[i].sta_name, i);
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device name success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*get device mac from wifiAssocStaTable*/
+    if(istc_snmp_walk(wifiAssocStaMacAddress, wifiAssocStaMacAddress_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiAssocStaMacAddress\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        return -1;
+    }
+    if(istc_snmp_table_get_rows_num(pdu_head, &sta_wifiAssocStaTable_count) != 0 || sta_wifiAssocStaTable_count <= 0)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not get sta count from wifiAssocStaTable\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        return -1;
+    }
+    else
+    {
+        istc_log("get sta count %d from wifiAssocStaTable success\n", sta_wifiAssocStaTable_count);
+    }
+    if((sta_wifiAssocStaTable = (istc_ap_sta_t *)calloc(sta_wifiAssocStaTable_count, sizeof(istc_ap_sta_t))) == NULL)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not calloc\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_wifiAssocStaTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            int len = (sizeof(sta_wifiAssocStaTable[i].sta_mac) > vars->val_len) ? vars->val_len : sizeof(sta_wifiAssocStaTable[i].sta_mac);
+            memcpy(sta_wifiAssocStaTable[i].sta_mac, vars->val.bitstring, len);
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device mac from wifiAssocStaTable success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*wifiAssocStaTxBytes is defined for wifi ssid, not for device, so we get rx flow of device from wifiAssocStaTxBytes*/
+    /*get device rx*/
+    if(istc_snmp_walk(wifiAssocStaTxBytes, wifiAssocStaTxBytes_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiAssocStaTxBytes\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        free(sta_wifiAssocStaTable);
+        return -1;
+    }
+    nowtime = istc_now_time_ms();
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaTxBytes, wifiAssocStaTxBytes_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_wifiAssocStaTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaTxBytes, wifiAssocStaTxBytes_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            sta_wifiAssocStaTable[i].down_flow_kbyte = (((unsigned long long)vars->val.counter64->high << 32 ) | (unsigned long long)vars->val.counter64->low) / 1024;
+            sta_wifiAssocStaTable[i].down_nowtime_ms = nowtime;
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device rx success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*get device tx*/
+    if(istc_snmp_walk(wifiAssocStaRxBytes, wifiAssocStaRxBytes_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiAssocStaRxBytes\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        free(sta_wifiAssocStaTable);
+        return -1;
+    }
+    nowtime = istc_now_time_ms();
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaRxBytes, wifiAssocStaRxBytes_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && sta_wifiAssocStaTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaRxBytes, wifiAssocStaRxBytes_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            sta_wifiAssocStaTable[i].up_flow_kbyte = (((unsigned long long)vars->val.counter64->high << 32 ) | (unsigned long long)vars->val.counter64->low) / 1024;
+            sta_wifiAssocStaTable[i].up_nowtime_ms = nowtime;
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device tx success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*get device ceil rx*/
+    if(istc_snmp_walk(wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiAssocStaTxRateLimit\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        free(sta_wifiAssocStaTable);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_wifiAssocStaTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if((unsigned long)*vars->val.integer != 0xFFFFFFFF)
+            {
+                sta_wifiAssocStaTable[i].down_ceil_rate_kbyte = (unsigned long)*vars->val.integer / 1024;
+            }
+            else
+            {
+                sta_wifiAssocStaTable[i].down_ceil_rate_kbyte = -1;
+            }
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device ceil rx success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+
+    /*get device ceil tx*/
+    if(istc_snmp_walk(wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len, &pdu_head, &status) != 0)
+    {
+        istc_log("can not walk wifiAssocStaRxRateLimit\n");
+        free(ap_sta);
+        free(sta_rgIpLanAddrTable);
+        free(sta_wifiAssocStaTable);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len);
+    i = 0;
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        for(vars = pdu_list->response->variables; vars && i < sta_wifiAssocStaTable_count; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if((unsigned long)*vars->val.integer != 0xFFFFFFFF)
+            {
+                sta_wifiAssocStaTable[i].up_ceil_rate_kbyte = (unsigned long)*vars->val.integer / 1024;
+            }
+            else
+            {
+                sta_wifiAssocStaTable[i].up_ceil_rate_kbyte = -1;
+            }
+            i++;
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_log("get device ceil tx success\n");
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
     
-    istc_log("ssid add success\n");
+    for(i = 0; i < sta_count; i++)
+    {
+        for(j = 0; j < sta_rgIpLanAddrTable_count; j++)
+        {
+            if(memcmp(ap_sta[i].sta_mac, sta_rgIpLanAddrTable[j].sta_mac, sizeof(ap_sta[i].sta_mac)) == 0)
+            {
+                ap_sta[i].sta_ip = sta_rgIpLanAddrTable[j].sta_ip;
+                strncpy(ap_sta[i].sta_name, sta_rgIpLanAddrTable[j].sta_name, sizeof(ap_sta[i].sta_name) - 1);
+            }
+        }
+    }
+    for(i = 0; i < sta_count; i++)
+    {
+        for(j = 0; j < sta_wifiAssocStaTable_count; j++)
+        {
+            if(memcmp(ap_sta[i].sta_mac, sta_wifiAssocStaTable[j].sta_mac, sizeof(ap_sta[i].sta_mac)) == 0)
+            {
+                ap_sta[i].up_flow_kbyte = sta_wifiAssocStaTable[j].up_flow_kbyte;
+                ap_sta[i].up_ceil_rate_kbyte = sta_wifiAssocStaTable[j].up_ceil_rate_kbyte;
+                ap_sta[i].up_nowtime_ms = sta_wifiAssocStaTable[j].up_nowtime_ms;
+                ap_sta[i].down_flow_kbyte = sta_wifiAssocStaTable[j].down_flow_kbyte;
+                ap_sta[i].down_ceil_rate_kbyte = sta_wifiAssocStaTable[j].down_ceil_rate_kbyte;
+                ap_sta[i].down_nowtime_ms = sta_wifiAssocStaTable[j].down_nowtime_ms;
+            }
+        }
+    }
+    
+    *count = (*count > sta_count) ? sta_count : *count;
+    memcpy(sta, ap_sta, *count * sizeof(istc_ap_sta_t));
+    free(ap_sta);
+    free(sta_rgIpLanAddrTable);
+    free(sta_wifiAssocStaTable);
+    istc_log("get devices list success, count = %d\n", *count);
     return 0;
+}
+
+
+int istc_wireless_ap_ssid_add(const char *ifname, const istc_ap_ssid_t * ssid)
+{
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_wireless_ap_ssid_remove(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_remove_ssid_t *data =
-        (istc_class_ap_remove_ssid_t *) (head + 1);
-
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_REMOVE_SSID,
-              sizeof (istc_class_ap_remove_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_remove_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_ap_ssid_enable(const char *ifname, const char *ssid)
 {
-    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
-    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
-    wifiBssTable_rowreq_ctx *bss_ctx = NULL;
-    int row = 0;
-    istc_ap_ssid_t ap_ssid;
-    int cnt = 0;
-    ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
-    
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
-    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
-
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
-    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
-    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
-    
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL && *ssid != 0);
-
-    istc_log("ifname = %s\n", ifname);
-    memset(&ap_ssid, 0, sizeof(ap_ssid));
-    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
-    
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
-    data_list= data_head; 
-    while(data_list != NULL)
-    {
-        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strcmp(ifname, ssid_ctx->data.clabWIFISSIDName) == 0)
-        {
-            row = data_list->row;
-            istc_log("find success, ifname = %s\n", ifname);
-            break;
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-    if(data_list == NULL)
-    {
-        istc_log("can not get bssid, ifname = %s\n", ifname);
-        return -1;
-    }
-
-    wifiBssSsid[wifiBssSsid_len - 1] = row;
-    wifiBssEnable[wifiBssEnable_len - 1] = row;
-
-    if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse wifiBssTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse wifiBssTable_rowreq_ctx success\n");
-    bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
-    if(strcmp(ssid, bss_ctx->data.wifiBssSsid) != 0)
-    {
-        istc_log("ifname:%s, ssid_name:%s, not match\n", ifname, ssid);
-        istc_snmp_free_datalist(data_head);
-        return -1;
-    }
-    istc_snmp_free_datalist(data_head);
-    
-    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "1", &stat) != 0)
-    {
-        istc_log("can not set bss enable, ifname = %s, ssid = %s\n", ifname, ssid);
-        return -1;
-    }
-
-    istc_log("ifname:%s, ssid:%s, enable success\n", ifname, ssid);
-    return 0;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_ap_ssid_disable(const char *ifname, const char *ssid)
 {
-    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
-    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
-    wifiBssTable_rowreq_ctx *bss_ctx = NULL;
-    int row = 0;
-    istc_ap_ssid_t ap_ssid;
-    int cnt = 0;
-    ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
-    
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
-    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
-
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
-    size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
-    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
-    
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL && *ssid != 0);
-
-    istc_log("ifname = %s\n", ifname);
-    memset(&ap_ssid, 0, sizeof(ap_ssid));
-    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
-    
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
-    data_list= data_head; 
-    while(data_list != NULL)
-    {
-        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strcmp(ifname, ssid_ctx->data.clabWIFISSIDName) == 0)
-        {
-            row = data_list->row;
-            istc_log("find success, ifname = %s\n", ifname);
-            break;
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-    if(data_list == NULL)
-    {
-        istc_log("can not get bssid, ifname = %s\n", ifname);
-        return -1;
-    }
-
-    wifiBssSsid[wifiBssSsid_len - 1] = row;
-    wifiBssEnable[wifiBssEnable_len - 1] = row;
-
-    if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse wifiBssTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse wifiBssTable_rowreq_ctx success\n");
-    bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
-    if(strcmp(ssid, bss_ctx->data.wifiBssSsid) != 0)
-    {
-        istc_log("ifname:%s, ssid_name:%s, not match\n", ifname, ssid);
-        istc_snmp_free_datalist(data_head);
-        return -1;
-    }
-    istc_snmp_free_datalist(data_head);
-    
-    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "2", &stat) != 0)
-    {
-        istc_log("can not set bss enable, ifname = %s, ssid = %s\n", ifname, ssid);
-        return -1;
-    }
-
-    istc_log("ifname:%s, ssid:%s, enable success\n", ifname, ssid);
-    return 0;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 static int istc_wireless_ap_ssid_mac_get(const char *ifname, const char *ssid,
                                          unsigned char list[][6], int *count,
                                          int mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[1024] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_get_mac_t *data = (istc_class_ap_get_mac_t *) (head + 1);
-    unsigned short length;
-    int cnt_ret = 0;
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    dot11BssTable_rowreq_ctx *ctx = NULL;
+    int ssid_index = -1;
     int cnt = 0;
+    int i = 0;
+    int status = -1;
 
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-    SURE_PTR(list);
-    SURE_PTR(count);
+    oid dot11BssSsid[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSSSID};
+    size_t dot11BssSsid_len = OID_LENGTH(dot11BssSsid);
 
-    if (mode == ISTC_ACL_MAC_MODE_ACCEPT) {
-        FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_GET_MAC_ACCEPT,
-                  sizeof (istc_class_ap_get_mac_t), seq);
-    } else if (mode == ISTC_ACL_MAC_MODE_DENY) {
-        FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_GET_MAC_DENY,
-                  sizeof (istc_class_ap_get_mac_t), seq);
-    } else {
+    oid wifiBssAccessStation[] = {WIFIBSSACCESSTABLE_OID, WIFIBSSACCESSENTRY_OID, COLUMN_WIFIBSSACCESSSTATION, 0};
+    size_t wifiBssAccessStation_len = OID_LENGTH(wifiBssAccessStation);
+
+    SNMP_ASSERT(ifname!= NULL && *ifname != 0);
+    SNMP_ASSERT(ssid != NULL && *ssid != 0);
+    SNMP_ASSERT(count != NULL);
+
+    if(istc_init_snmp_wifissid() != 0)
+    {
+        istc_log("can not init snmp index\n");
         return -1;
     }
-
-    SURE_OPEN(sock);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_get_mac_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_ap_get_mac_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *count);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * 6;
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                int j;
-                unsigned char *ptr = (unsigned char *) buff;
-                for (i = 0, j = 0; i < cnt; i++, j++, ptr += 6) {
-                    memcpy(list[j], ptr, 6);
+    
+    if(istc_snmp_table_parse_datalist(dot11BssSsid, dot11BssSsid_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSsid\n");
+        return -1;
+    }
+    data_list = data_head;
+    while(data_list != NULL)
+    {
+        ctx = (dot11BssTable_rowreq_ctx *)data_list->data;
+        if(strstr(ctx->data.dot11BssSsid, ssid) != NULL)
+        {
+            for(i = 0; i < sizeof(gSNMPWIFISSID) / sizeof(gSNMPWIFISSID[0]); i++)
+            {
+                if(strstr(gSNMPWIFISSID[i].ifname, ifname) != NULL)
+                {
+                    ssid_index = data_list->row;
+                    break;
                 }
             }
-
+            if(ssid_index >= 0)
+            {
+                istc_log("get ssid_index %d success\n", ssid_index);
+                break;
+            }
         }
-
-        ret = 0;
-        *count = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+        data_list = data_list->next;
     }
+    if(data_list == NULL)
+    {
+        istc_log("can not find ssid index, ifname = %s, ssid = %s\n", ifname, ssid);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
+    istc_snmp_table_free_datalist(data_head);
+    data_head= NULL;
 
-    istc_client_close(sock);
-
-    return ret;
-
+    if(mode == ISTC_ACL_MAC_MODE_ACCEPT || mode == ISTC_ACL_MAC_MODE_DENY)
+    {
+        wifiBssAccessStation[wifiBssAccessStation_len - 1] = ssid_index;
+        i = 0;
+        if(istc_snmp_walk(wifiBssAccessStation, wifiBssAccessStation_len, &pdu_head, &status) != 0)
+        {
+            istc_log("can not walk wifiBssAccessStation\n");
+            return -1;
+        }
+        pdu_list = pdu_head;
+        istc_snmp_print_pdulist(pdu_head, wifiBssAccessStation, wifiBssAccessStation_len);
+        while(pdu_list != NULL)
+        {
+            struct variable_list *vars = NULL;
+            for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+            {
+                if(memcmp(vars->name, wifiBssAccessStation, wifiBssAccessStation_len * sizeof(oid)) != 0)
+                {
+                    break;
+                }
+                memcpy(list[i], vars->val.bitstring, sizeof(list[i]));
+                i++;
+            }
+            pdu_list = pdu_list->next;
+        }
+        *count = i;
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("get mac_ctl list success, count = %d\n", *count);
+        return 0;
+    }
+    return 0;
 }
 
 
@@ -2216,43 +1132,156 @@ int istc_wireless_ap_ssid_mac_deny_get(const char *ifname, const char *ssid,
 static int istc_wireless_ap_ssid_mac_op(const char *ifname, const char *ssid,
                                         unsigned char *mac, unsigned short op)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[1024] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_mac_t *data = (istc_class_ap_mac_t *) (head + 1);
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    dot11BssTable_rowreq_ctx *ctx = NULL;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    int ssid_index = -1;
+    int cnt = 0;
+    int i = 0;
+    int status = -1;
+    int mac_index = -1;
+    char macstr[13] = {0};
+    SNMP_AGENT_INFO_st agentinfo;
+    int retries = 0;
 
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-    SURE_PTR(mac);
+    oid dot11BssSsid[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSSSID};
+    size_t dot11BssSsid_len = OID_LENGTH(dot11BssSsid);
 
-    FILL_HEAD(head, ISTC_CLASS_AP, op, sizeof (istc_class_ap_mac_t), seq);
+    oid wifiBssAccessStation[] = {WIFIBSSACCESSTABLE_OID, WIFIBSSACCESSENTRY_OID, COLUMN_WIFIBSSACCESSSTATION, 0};
+    size_t wifiBssAccessStation_len = OID_LENGTH(wifiBssAccessStation);
 
-    SURE_OPEN(sock);
+    SNMP_ASSERT(ifname!= NULL && *ifname != 0);
+    SNMP_ASSERT(ssid != NULL && *ssid != 0);
 
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-    memcpy(data->mac, mac, 6);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t) + sizeof (istc_class_ap_mac_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    snprintf(macstr, sizeof(macstr), "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    memset(&agentinfo, 0, sizeof(SNMP_AGENT_INFO_st));
+    
+    if(istc_init_snmp_wifissid() != 0)
+    {
+        istc_log("can not init snmp index\n");
+        return -1;
     }
+    
+    if(istc_snmp_table_parse_datalist(dot11BssSsid, dot11BssSsid_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSsid\n");
+        return -1;
+    }
+    data_list = data_head;
+    while(data_list != NULL)
+    {
+        ctx = (dot11BssTable_rowreq_ctx *)data_list->data;
+        if(strstr(ctx->data.dot11BssSsid, ssid) != NULL)
+        {
+            for(i = 0; i < sizeof(gSNMPWIFISSID) / sizeof(gSNMPWIFISSID[0]); i++)
+            {
+                if(strstr(gSNMPWIFISSID[i].ifname, ifname) != NULL)
+                {
+                    ssid_index = data_list->row;
+                    break;
+                }
+            }
+            if(ssid_index >= 0)
+            {
+                istc_log("get ssid_index %d success\n", ssid_index);
+                break;
+            }
+        }
+        data_list = data_list->next;
+    }
+    if(data_list == NULL)
+    {
+        istc_log("can not find ssid index, ifname = %s, ssid = %s\n", ifname, ssid);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
+    istc_snmp_table_free_datalist(data_head);
+    data_head= NULL;
 
-    istc_client_close(sock);
-
-    return ret;
-
+    wifiBssAccessStation[wifiBssAccessStation_len - 1] = ssid_index;
+    i = 0;
+    
+    if(istc_snmp_walk(wifiBssAccessStation, wifiBssAccessStation_len, &pdu_head, &status) != 0)
+    {
+        istc_log("wifiBssAccessStation is NULL\n");
+    }
+    else
+    {
+        pdu_list = pdu_head;
+        istc_snmp_print_pdulist(pdu_head, wifiBssAccessStation, wifiBssAccessStation_len);
+        while(pdu_list != NULL)
+        {
+            struct variable_list *vars = NULL;
+            for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+            {
+                if(memcmp(vars->name, wifiBssAccessStation, wifiBssAccessStation_len * sizeof(oid)) != 0)
+                {
+                    break;
+                }
+                i++;
+                if(mac_index < 0 && memcmp(mac, vars->val.bitstring, pdu_list->response->variables->val_len) == 0)
+                {
+                    istc_log("get mac in maclist, index = %d\n", i);
+                    mac_index = i;
+                }
+            }
+            pdu_list = pdu_list->next;
+        }
+        istc_snmp_free_pdulist(pdu_head);
+    }
+    istc_log("mac numbers %d\n", i);
+    if(op == ISTC_CLASS_AP_CMD_ADD_MAC_ACCEPT || op == ISTC_CLASS_AP_CMD_ADD_MAC_DENY)
+    {
+        oid wifiBssAccessStation[] = {WIFIBSSACCESSTABLE_OID, WIFIBSSACCESSENTRY_OID, COLUMN_WIFIBSSACCESSSTATION, 0, 0};
+        size_t wifiBssAccessStation_len = OID_LENGTH(wifiBssAccessStation);
+        wifiBssAccessStation[wifiBssAccessStation_len - 2] = ssid_index;
+        wifiBssAccessStation[wifiBssAccessStation_len - 1] = i + 1;
+        if(mac_index >= 0)
+        {
+            istc_log("mac already in maclist, no need to add\n");
+            return 0;
+        }
+        istc_log("set mac:[%s]\n", macstr);
+        if(istc_snmp_set(wifiBssAccessStation, wifiBssAccessStation_len, SNMP_X, macstr, &status) != 0)
+        {
+            istc_log("set mac failed\n");
+            return -1;
+        }
+        istc_log("add mac success, index = %d\n", i + 1);
+        return 0;
+    }
+    else if(op == ISTC_CLASS_AP_CMD_REMOVE_MAC_ACCEPT || op == ISTC_CLASS_AP_CMD_REMOVE_MAC_DENY)
+    {
+        if(mac_index < 0)
+        {
+            istc_log("input mac is not in maclist, can not remove\n");
+            return -1;
+        }
+        oid wifiBssAccessStation[] = {WIFIBSSACCESSTABLE_OID, WIFIBSSACCESSENTRY_OID, COLUMN_WIFIBSSACCESSSTATION, 0, 0};
+        size_t wifiBssAccessStation_len = OID_LENGTH(wifiBssAccessStation);
+        wifiBssAccessStation[wifiBssAccessStation_len - 2] = ssid_index;
+        wifiBssAccessStation[wifiBssAccessStation_len - 1] = mac_index;
+        istc_snmp_get_agent_info(&agentinfo);
+        retries = agentinfo.retries;
+        istc_log("old retries = %d\n", retries);
+        agentinfo.retries = -1;
+        istc_snmp_update_agent_info(agentinfo);
+        if(istc_snmp_set(wifiBssAccessStation, wifiBssAccessStation_len, SNMP_X, "000000000000", &status) != 0)
+        {
+            istc_snmp_get_agent_info(&agentinfo);
+            agentinfo.retries = retries;
+            istc_snmp_update_agent_info(agentinfo);
+            istc_log("set mac failed\n");
+            return -1;
+        }
+        istc_snmp_get_agent_info(&agentinfo);
+        agentinfo.retries = retries;
+        istc_snmp_update_agent_info(agentinfo);
+        istc_log("remove mac success, index = %d\n", mac_index);
+        return 0;
+    }
+    istc_log("mac op error\n");
+    return -1;
 }
 
 
@@ -2289,186 +1318,195 @@ int istc_wireless_ap_ssid_mac_deny_remove(const char *ifname, const char *ssid,
 int istc_wireless_ap_ssid_mac_acl_get(const char *ifname, const char *ssid,
                                       int *mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[1024] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_mac_acl_t *data = (istc_class_ap_mac_acl_t *) (head + 1);
-    unsigned short length;
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    dot11BssTable_rowreq_ctx *ctx = NULL;
+    int ssid_index = -1;
+    int cnt = 0;
+    int i = 0;
 
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-    SURE_PTR(mode);
+    oid dot11BssSsid[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSSSID};
+    size_t dot11BssSsid_len = OID_LENGTH(dot11BssSsid);
 
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_GET_MAC_ACL,
-              sizeof (istc_class_ap_mac_acl_t), seq);
+    oid dot11BssAccessMode[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSACCESSMODE, 0};
+    size_t dot11BssAccessMode_len = OID_LENGTH(dot11BssAccessMode);
 
-    SURE_OPEN(sock);
+    SNMP_ASSERT(ifname!= NULL && *ifname != 0);
+    SNMP_ASSERT(ssid != NULL && *ssid != 0);
+    SNMP_ASSERT(mode != NULL);
 
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_mac_acl_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_ap_mac_acl_t), ret);
-            *mode = ntohl(data->mode);
-            ret = 0;
+    if(istc_init_snmp_wifissid() != 0)
+    {
+        istc_log("can not init snmp index\n");
+        return -1;
+    }
+    
+    if(istc_snmp_table_parse_datalist(dot11BssSsid, dot11BssSsid_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSsid\n");
+        return -1;
+    }
+    data_list = data_head;
+    while(data_list != NULL)
+    {
+        ctx = (dot11BssTable_rowreq_ctx *)data_list->data;
+        if(strstr(ctx->data.dot11BssSsid, ssid) != NULL)
+        {
+            for(i = 0; i < sizeof(gSNMPWIFISSID) / sizeof(gSNMPWIFISSID[0]); i++)
+            {
+                if(strstr(gSNMPWIFISSID[i].ifname, ifname) != NULL)
+                {
+                    ssid_index = data_list->row;
+                    break;
+                }
+            }
+            if(ssid_index >= 0)
+            {
+                istc_log("get ssid_index %d success\n", ssid_index);
+                break;
+            }
         }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+        data_list = data_list->next;
+    }
+    if(data_list == NULL)
+    {
+        istc_log("can not find ssid index, ifname = %s, ssid = %s\n", ifname, ssid);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
     }
 
-    istc_client_close(sock);
-
-    return ret;
-
+    dot11BssAccessMode[dot11BssAccessMode_len - 1] = ssid_index;
+    
+    istc_snmp_table_free_datalist(data_head);
+    data_head= NULL;
+    if(istc_snmp_table_parse_datalist(dot11BssAccessMode, dot11BssAccessMode_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse dot11BssAccessMode\n");
+        return -1;
+    }
+    ctx = (dot11BssTable_rowreq_ctx *)(data_head->data);
+    switch((int)ctx->data.dot11BssAccessMode)
+    {
+    case DOT11BSSACCESSMODE_ALLOWANY:
+        *mode = ISTC_ACL_MAC_MODE_DISABLE;
+        break;
+    case DOT11BSSACCESSMODE_ALLOWLIST:
+        *mode = ISTC_ACL_MAC_MODE_ACCEPT;
+        break;
+    case DOT11BSSACCESSMODE_DENYLIST:
+        *mode = ISTC_ACL_MAC_MODE_DENY;
+        break;
+    default:
+        istc_log("dot11BssAccessMode %d invalued", (int)ctx->data.dot11BssAccessMode);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
+    istc_snmp_table_free_datalist(data_head);
+    istc_log("get mac_ctl mode %d success\n", *mode);
+    return 0;
 }
 
 
 int istc_wireless_ap_ssid_mac_acl_set(const char *ifname, const char *ssid,
                                       int mode)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[1024] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_mac_acl_t *data = (istc_class_ap_mac_acl_t *) (head + 1);
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    dot11BssTable_rowreq_ctx *ctx = NULL;
+    int ssid_index = -1;
+    int cnt = 0;
+    int i = 0;
+    int value = 0;
+    char valuestr[4]= {0};
+    int status = -1;;
 
-    SURE_STR(ifname);
-    SURE_STR(ssid);
+    oid dot11BssSsid[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSSSID};
+    size_t dot11BssSsid_len = OID_LENGTH(dot11BssSsid);
 
-    if (mode < ISTC_ACL_MAC_MODE_DISABLE || mode >= ISTC_ACL_MAC_MODE_MAX) {
-        DPRINT("mode is invalid\n");
+    oid dot11BssAccessMode[] = {DOT11BSSTABLE_OID, DOT11BSSENTRY_OID, COLUMN_DOT11BSSACCESSMODE, 0};
+    size_t dot11BssAccessMode_len = OID_LENGTH(dot11BssAccessMode);
+
+    SNMP_ASSERT(ifname != NULL && *ifname != 0);
+    SNMP_ASSERT(ssid != NULL && *ssid != 0);
+
+    if(istc_init_snmp_wifissid() != 0)
+    {
+        istc_log("can not init snmp index\n");
         return -1;
     }
 
-
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_SET_MAC_ACL,
-              sizeof (istc_class_ap_mac_acl_t), seq);
-
-    SURE_OPEN(sock);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-    data->mode = htonl(mode);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t) + sizeof (istc_class_ap_mac_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    switch(mode)
+    {
+    case ISTC_ACL_MAC_MODE_DISABLE:
+        value = DOT11BSSACCESSMODE_ALLOWANY;
+        break;
+    case ISTC_ACL_MAC_MODE_DENY:
+        value = DOT11BSSACCESSMODE_DENYLIST;
+        break;
+    case ISTC_ACL_MAC_MODE_ACCEPT:
+        value = DOT11BSSACCESSMODE_ALLOWLIST;
+        break;
+    default:
+        istc_log("mode = %d, not support\n", mode);
+        return -1;
     }
 
-    istc_client_close(sock);
+    if(istc_snmp_table_parse_datalist(dot11BssSsid, dot11BssSsid_len, (SnmpTableFun)_dot11BssTable_set_column, sizeof(dot11BssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiBssSsid\n");
+        return -1;
+    }
+    data_list = data_head;
+    while(data_list != NULL)
+    {
+        ctx = (dot11BssTable_rowreq_ctx *)data_list->data;
+        if(strstr(ctx->data.dot11BssSsid, ssid) != NULL)
+        {
+            for(i = 0; i < sizeof(gSNMPWIFISSID) / sizeof(gSNMPWIFISSID[0]); i++)
+            {
+                if(strstr(gSNMPWIFISSID[i].ifname, ifname) != NULL)
+                {
+                    ssid_index = data_list->row;
+                    break;
+                }
+            }
+            if(ssid_index >= 0)
+            {
+                istc_log("get ssid_index %d success\n", ssid_index);
+                break;
+            }
+        }
+        data_list = data_list->next;
+    }
+    if(data_list == NULL)
+    {
+        istc_log("can not find ssid index, ifname = %s, ssid = %s\n", ifname, ssid);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
 
-    return ret;
+    dot11BssAccessMode[dot11BssAccessMode_len - 1] = ssid_index;
 
+    istc_inet_itoa(value, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    if(istc_snmp_set(dot11BssAccessMode, dot11BssAccessMode_len, SNMP_INT, valuestr, &status) != 0)
+    {
+        istc_log("can not set dot11BssAccessMode, status = %d\n", status);
+        istc_log("set mac_ctl mode to %d failed\n", mode);
+        return -1;
+    }
+    istc_log("set dot11BssAccessMode success\n");
+    istc_log("set mac_ctl mode to %d success\n", mode);
+    return 0;
 }
-
-
 
 int istc_async_wireless_ap_ssid_enable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_enable_ssid_t *data =
-        (istc_class_ap_enable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_AP_CMD_ENABLE_SSID_ASYNC,
-              sizeof (istc_class_ap_enable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_enable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_async_wireless_ap_ssid_disable(const char *ifname, const char *ssid)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_disable_ssid_t *data =
-        (istc_class_ap_disable_ssid_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(ssid);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_STA, ISTC_CLASS_AP_CMD_DISABLE_SSID_ASYNC,
-              sizeof (istc_class_ap_disable_ssid_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid, ssid, ISTC_SSID_NAME_SIZE);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_ap_disable_ssid_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
@@ -2477,1972 +1515,335 @@ int istc_async_wireless_ap_ssid_disable(const char *ifname, const char *ssid)
 
 int istc_dhcp_pool_get(istc_dhcp_pool_t * pool, int *count)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[2048] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_get_pool_t *data =
-        (istc_class_dhcp_get_pool_t *) (head + 1);
-    int length = 0;
-    int cnt_ret = 0;
-    int cnt = 0;
-
-    SURE_PTR(pool);
-
-    SURE_PTR(count);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPS_CMD_GET_POOL,
-              sizeof (istc_class_dhcp_get_pool_t), seq);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_get_pool_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_dhcp_get_pool_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *pcnt);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * sizeof (istc_dhcp_pool_t);
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                istc_dhcp_pool_t *ptr = (istc_dhcp_pool_t *) buff;
-                for (i = 0; i < cnt; i++, pool++, ptr++) {
-                    strncpy(pool->name, ptr->name, ISTC_DHCP_POOL_NAME_SIZE);
-                    strncpy(pool->interface, ptr->interface, ISTC_IFNAME_SIZE);
-                    pool->start = ntohl(ptr->start);
-                    pool->end = ntohl(ptr->end);
-                    pool->mask = ntohl(ptr->mask);
-                    pool->gateway = ntohl(ptr->gateway);
-                    pool->lease = ntohl(ptr->lease);
-                    pool->primary_dns = ntohl(ptr->primary_dns);
-                    pool->secondary_dns = ntohl(ptr->secondary_dns);
-                }
-            }
-
-        }
-
-        ret = 0;
-        *count = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_dhcp_lease_get(istc_dhcp_lease_t * lease, int *count)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[2048] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_get_lease_t *data =
-        (istc_class_dhcp_get_lease_t *) (head + 1);
-    int length = 0;
-    int cnt_ret = 0;
-    int cnt = 0;
-
-    SURE_PTR(lease);
-
-    SURE_PTR(count);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPS_CMD_GET_LEASE,
-              sizeof (istc_class_dhcp_get_lease_t), seq);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_get_lease_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data, sizeof (istc_class_dhcp_get_lease_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *pcnt);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * sizeof (istc_dhcp_lease_t);
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                istc_dhcp_lease_t *ptr = (istc_dhcp_lease_t *) buff;
-                for (i = 0; i < cnt; i++, lease++, ptr++) {
-                    strncpy(lease->host_name, ptr->host_name,
-                            ISTC_HOST_NAME_SIZE);
-                    lease->host_ip = ntohl(ptr->host_ip);
-                    memcpy(lease->host_mac, ptr->host_mac, 6);
-                    lease->host_lease = ntohl(ptr->host_lease);
-                }
-            }
-
-        }
-
-        ret = 0;
-        *count = cnt;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_dhcp_pool_add(const istc_dhcp_pool_t * pool)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[1024] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_dhcp_pool_t *data = (istc_dhcp_pool_t *) (head + 1);
-
-
-    SURE_PTR(pool);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPS_CMD_ADD_POOL,
-              sizeof (istc_dhcp_pool_t), seq);
-
-    if (pool->interface[0]) {
-        strncpy(data->interface, pool->interface, ISTC_IFNAME_SIZE);
-    }
-
-    if (pool->name[0]) {
-        strncpy(data->name, pool->name, ISTC_DHCP_POOL_NAME_SIZE);
-    }
-
-    if (data->mask > 0) {
-        unsigned int mask = data->mask;
-        mask = ~mask + 1;
-        if ((mask & (mask - 1)) != 0) {
-            DPRINT("netmask 0x%x format error\n", data->mask);
-            return -1;
-        }
-    }
-
-    if (data->start > data->end) {
-        DPRINT("start must less than end\n");
-        return -1;
-    }
-
-    data->start = htonl(pool->start);
-    data->end = htonl(pool->end);
-    data->mask = htonl(pool->mask);
-    data->lease = htonl(pool->lease);
-    data->gateway = htonl(pool->gateway);
-    data->primary_dns = htonl(pool->primary_dns);
-    data->secondary_dns = htonl(pool->secondary_dns);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t) + sizeof (istc_dhcp_pool_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_dhcp_pool_remove(unsigned int start, unsigned int end)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_remove_pool_t *data =
-        (istc_class_dhcp_remove_pool_t *) (head + 1);
-
-    if (start > end) {
-        DPRINT("start should less than end!\n");
-        return -1;
-    }
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPS_CMD_REMOVE_POOL,
-              sizeof (istc_class_dhcp_remove_pool_t), seq);
-
-    data->start = htonl(start);
-    data->end = htonl(end);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_remove_pool_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 int istc_dhcp_pool_remove_by_name(const char *name)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_remove_pool_by_name_t *data =
-        (istc_class_dhcp_remove_pool_by_name_t *) (head + 1);
-
-    SURE_STR(name);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPS_CMD_REMOVE_POOL_BY_NAME,
-              sizeof (istc_class_dhcp_remove_pool_by_name_t), seq);
-
-    strncpy(data->name, name, ISTC_DHCP_POOL_NAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_remove_pool_by_name_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_dhcpc_option60_add(const char *ifname, const char *data_in)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_add_opt60_t *data =
-        (istc_class_dhcp_add_opt60_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(data_in);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPC_CMD_ADD_OPT60,
-              sizeof (istc_class_dhcp_add_opt60_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->data, data_in, ISTC_DHCP_OPTION60_SIZE);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_add_opt60_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_dhcpc_option60_remove(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_remove_opt60_t *data =
-        (istc_class_dhcp_remove_opt60_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPC_CMD_REMOVE_OPT60,
-              sizeof (istc_class_dhcp_remove_opt60_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_remove_opt60_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_dhcpc_option60_s_add(const char *ifname, const char *data_in)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_add_opt60_s_t *data =
-        (istc_class_dhcp_add_opt60_s_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(data_in);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPC_CMD_ADD_OPT60_S,
-              sizeof (istc_class_dhcp_add_opt60_s_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->data, data_in, ISTC_DHCP_OPTION60_SIZE);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_add_opt60_s_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_dhcpc_option60_s_remove(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dhcp_remove_opt60_s_t *data =
-        (istc_class_dhcp_remove_opt60_s_t *) (head + 1);
-
-    SURE_STR(ifname);
-
-    FILL_HEAD(head, ISTC_CLASS_DHCPS, ISTC_CLASS_DHCPC_CMD_REMOVE_OPT60_S,
-              sizeof (istc_class_dhcp_remove_opt60_s_t), seq);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dhcp_remove_opt60_s_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
-
-#ifndef ISTC_USE_SNMP
-/************************    link notification routines    ************************/
-#define ISTC_LINK_CHANGE_LIST_MAX	32
-#define ISTC_LINK_CHANGE_FLAG_USED	1
-#define ISTC_LINK_CHANGE_BUFF_SIZE	128
-
-typedef void (*istc_link_change_callback_t) (const istc_link_change_t * link);
-
-typedef struct istc_link_change_data_s {
-    char ifname[ISTC_IFNAME_SIZE];  /* changed interface */
-    int iflen;
-    void *data;                 /* user data */
-    istc_link_change_callback_t callback;
-    int flag;
-} istc_link_change_data_t;
-
-typedef struct istc_link_change_desc_s {
-    pthread_rwlock_t rwlock;
-    pthread_t tid;
-    int sock;
-    istc_link_change_data_t list[ISTC_LINK_CHANGE_LIST_MAX];
-} istc_link_change_desc_t;
-
-static istc_async_desc_t g_istc_async_desc = {
-    .sock = -1,
-    .tid = 0,
-    .rwlock = PTHREAD_RWLOCK_INITIALIZER,
-};
-
-static istc_link_change_desc_t g_istc_link_desc = {
-    .rwlock = PTHREAD_RWLOCK_INITIALIZER,
-    .tid = 0,
-    .sock = -1,
-};
-
-
-static int istc_interface_link_notify(const char *ifname, int change_to)
-{
-    int ret = -1;
-    int errer_no;
-    int i;
-    int len;
-    istc_link_change_data_t *list = g_istc_link_desc.list;
-    istc_link_change_t arg;
-
-
-    if (!ifname || !*ifname) {
-        return -1;
-    }
-    //DPRINT("interface %s link change to %d\n", ifname, change_to);
-
-
-    if (change_to < 0) {
-        return -1;
-    }
-
-    len = strlen(ifname);
-
-    if ((errer_no = pthread_rwlock_rdlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("rdlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-	int b_registered = 0;
-
-    for (i = 0; i < ISTC_LINK_CHANGE_LIST_MAX; i++) {
-        if ((list[i].flag & ISTC_LINK_CHANGE_FLAG_USED)) {
-            /* check if the interface is registered */
-            int b_need_callback = 0;
-			if ( 0 == strncmp(ISTC_IFNAME_ALL, list[i].ifname, strlen(ISTC_IFNAME_ALL)) ) {
-				b_need_callback = 1;
-			} else if (len == list[i].iflen
-                && strncmp(ifname, list[i].ifname, len) == 0) {
-				b_need_callback = 1;
-			}
-			if (1 == b_need_callback) {
-                /* yes, found, do the callback */
-				b_registered = 1;
-                strncpy(arg.ifname, ifname, ISTC_IFNAME_SIZE);
-                arg.change_to = change_to;
-                arg.data = list[i].data;
-                /* Call the register function, note, must not blocked !!! */
-                //DPRINT("call register function\n");
-                list[i].callback(&arg);
-            } 
-        }
-    }
-
-	if (0 == b_registered) {
-		DPRINT("error! %s not registered for notify!\n", ifname);
-	}
-
-    if ((errer_no = pthread_rwlock_unlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("unlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    return ret;
-}
-
-
-static void *istc_interface_link_change_handler(void *arg)
-{
-    int sock = (int) arg;
-    fd_set rdset;
-    struct timeval time_val;
-    int ret = -1;
-    int errno_local = 0;
-    char buff[ISTC_LINK_CHANGE_BUFF_SIZE];
-    int size = sizeof (buff);
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_link_notification_t *notif = (istc_link_notification_t *) (head + 1);
-    int len = sizeof (istc_head_t) + sizeof (istc_link_notification_t);
-    int class;
-    int command;
-    int change_to;
-
-    DPRINT("enter link notification thread(detached), start to watch ...\n");
-
-    pthread_detach(pthread_self());
-
-    while (1) {
-        FD_ZERO(&rdset);
-        FD_SET(sock, &rdset);
-        time_val.tv_sec = ISTC_TIMEOUT_DEFAULT;
-        time_val.tv_usec = 0;
-
-        if ((ret = select(sock + 1, &rdset, NULL, NULL, &time_val)) == -1) {
-            errno_local = errno;
-            if ((errno_local == EINTR)) {
-                /* would bock or interrupted */
-                continue;
-            } else {
-                DPRINT("select failed %s, returned\n", strerror(errno_local));
-                return (void *) (errno_local);
-            }
-        }
-
-        if (ret == 0) {
-            //DPRINT("recv timeout\n");
-            continue;
-        }
-
-        if (FD_ISSET(sock, &rdset)) {
-            /* may a link notification come */
-            memset(buff, 0, size);
-            if ((ret = recv(sock, buff, len, 0)) == -1) {
-                errno_local = errno;
-                if ((errno_local == EAGAIN) ||
-                    (errno_local == EWOULDBLOCK) || (errno_local == EINTR)) {
-                    /* would blocked, try it again */
-                    continue;
-                } else {
-                    DPRINT("recv failed %s, returned\n", strerror(errno_local));
-                    istc_client_close(sock);
-                    return (void *) (errno_local);
-                }
-            }
-
-            if (ret == 0) {
-                DPRINT("server close the connection\n");
-                istc_client_close(sock);
-                return (void *) (errno_local);
-            }
-
-            if (ret != len) {
-                DPRINT("receive trancated, ignore this message\n");
-                continue;
-            }
-
-            /* now parse the received data */
-            if (head->type == ISTC_MSG_TYPE_NOTIFY) {
-                class = ntohs(head->class);
-                command = ntohs(head->command);
-                if (class == ISTC_CLASS_NOTIFY &&
-                    command == ISTC_CLASS_NOTIFY_CMD_LINK_CHANGED) {
-                    change_to = ntohl(notif->change_to);
-                    istc_interface_link_notify(notif->ifname, change_to);
-                }
-            }
-
-        }
-
-    }
-
-    return NULL;
-}
-
-
-int istc_link_change_register(const char *ifname,
-                              void (*callback) (const istc_link_change_t *
-                                                link), void *data)
-{
-    int ret = -1;
-    int errer_no;
-    int i;
-    istc_link_change_data_t *list = g_istc_link_desc.list;
-    int len;
-
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_link_notification_t *notif = (istc_link_notification_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_PTR(callback);
-
-    len = strlen(ifname);
-
-    FILL_HEAD(head, ISTC_CLASS_NOTIFY,
-              ISTC_CLASS_NOTIFY_CMD_REGISTER_LINK_CHANGE,
-              sizeof (istc_link_notification_t), seq);
-    strncpy(notif->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    if ((errer_no = pthread_rwlock_wrlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("wrlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    if (g_istc_link_desc.tid == 0) {
-        pthread_t tid;
-        int sock;
-        if ((sock = istc_client_open()) == -1) {
-            DPRINT("open socket failed\n");
-            goto register_fail;
-        }
-
-        istc_socket_nonblock(sock);
-
-        /* create a thread */
-        DPRINT("create a thread to receive link notification!\n");
-        if ((errer_no =
-             pthread_create(&tid, NULL, istc_interface_link_change_handler,
-                            (void *) sock)) != 0) {
-            DPRINT("unlock error %s\n", strerror(errer_no));
-            goto register_fail;
-        }
-        g_istc_link_desc.tid = tid;
-        g_istc_link_desc.sock = sock;
-    }
-
-    /* register callback */
-    /* duplicate register is allowed */
-    for (i = 0; i < ISTC_LINK_CHANGE_LIST_MAX; i++) {
-        if (!(list[i].flag & ISTC_LINK_CHANGE_FLAG_USED)) {
-            /* insert */
-            strncpy(list[i].ifname, ifname, ISTC_IFNAME_SIZE);
-            list[i].iflen = len;
-            list[i].data = data;
-            list[i].callback = callback;
-
-            if (send(g_istc_link_desc.sock, buff,
-                     sizeof (istc_head_t) + sizeof (istc_link_notification_t),
-                     MSG_NOSIGNAL) == -1) {
-                DERROR("send error\n");
-                break;
-            }
-#if 0
-            if ((ret =
-                 istc_recv_timeout(g_istc_link_desc.sock, buff,
-                                   sizeof (istc_head_t), 0)) == -1) {
-                DPRINT("recv failed\n");
-                break;
-            }
-
-            if (ret != sizeof (istc_head_t) || head->rc != 0) {
-                break;
-            }
-#endif
-            list[i].flag = ISTC_LINK_CHANGE_FLAG_USED;
-            ret = 0;
-            break;
-        }
-    }
-
-  register_fail:
-
-    if ((errer_no = pthread_rwlock_unlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("unlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    return ret;
-}
-
-int istc_link_change_unregister(const char *ifname,
-                                void (*callback) (const istc_link_change_t *
-                                                  link))
-{
-    int ret = -1;
-    int errer_no;
-    int i;
-    istc_link_change_data_t *list = g_istc_link_desc.list;
-    int len;
-
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_link_notification_t *notif = (istc_link_notification_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_PTR(callback);
-
-    len = strlen(ifname);
-
-    FILL_HEAD(head, ISTC_CLASS_NOTIFY,
-              ISTC_CLASS_NOTIFY_CMD_UNREGISTER_LINK_CHANGE,
-              sizeof (istc_link_notification_t), seq);
-    strncpy(notif->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    if ((errer_no = pthread_rwlock_wrlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("wrlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    for (i = 0; i < ISTC_LINK_CHANGE_LIST_MAX; i++) {
-        if ((list[i].flag & ISTC_LINK_CHANGE_FLAG_USED)) {
-            if (list[i].callback == callback &&
-                len == list[i].iflen &&
-                strncmp(ifname, list[i].ifname, len) == 0) {
-                /* yes, we found the registered data, unregister it now */
-                list[i].flag = 0;
-
-                if (send(g_istc_link_desc.sock, buff,
-                         sizeof (istc_head_t) +
-                         sizeof (istc_link_notification_t),
-                         MSG_NOSIGNAL) == -1) {
-                    DERROR("send error\n");
-                    break;
-                }
-
-                ret = 0;
-                break;
-            }
-        }
-    }
-
-    if ((errer_no = pthread_rwlock_unlock(&g_istc_link_desc.rwlock)) < 0) {
-        DPRINT("unlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    return ret;
-}
-
-
-
-static void *istc_async_handler(void *arg)
-{
-    int sock = (int) arg;
-    fd_set rdset;
-    struct timeval time_val;
-    int ret = -1;
-    int errno_local = 0;
-    char buff[1600];
-    int size = sizeof (buff);
-    istc_head_t *head = (istc_head_t *) buff;
-    int class;
-    int command;
-    int i;
-
-    DPRINT("enter async notification thread(detached), start ...\n");
-
-    pthread_detach(pthread_self());
-
-    while (1) {
-        FD_ZERO(&rdset);
-        FD_SET(sock, &rdset);
-        time_val.tv_sec = ISTC_TIMEOUT_DEFAULT;
-        time_val.tv_usec = 0;
-
-        if ((ret = select(sock + 1, &rdset, NULL, NULL, &time_val)) == -1) {
-            errno_local = errno;
-            if ((errno_local == EINTR)) {
-                /* would bock or interrupted */
-                continue;
-            } else {
-                DPRINT("select failed %s, returned\n", strerror(errno_local));
-                return (void *) (errno_local);
-            }
-        }
-
-        if (ret == 0) {
-            //DPRINT("recv timeout\n");
-            continue;
-        }
-
-        if (FD_ISSET(sock, &rdset)) {
-            /* may a async notification come */
-            memset(buff, 0, size);
-            if ((ret = recv(sock, buff, sizeof(buff), 0)) == -1) {
-                errno_local = errno;
-                if ((errno_local == EAGAIN) ||
-                    (errno_local == EWOULDBLOCK) || (errno_local == EINTR)) {
-                    /* would blocked, try it again */
-                    continue;
-                } else {
-                    DPRINT("recv failed %s, returned\n", strerror(errno_local));
-                    istc_client_close(sock);
-                    return (void *) (errno_local);
-                }
-            }
-
-            if (ret == 0) {
-                DPRINT("server close the connection\n");
-                istc_client_close(sock);
-                return (void *) (errno_local);
-            }
-
-            /* now parse the received data */
-            if (head->type == ISTC_MSG_TYPE_ASYNC) {
-                class = ntohs(head->class);
-                command = ntohs(head->command);
-                if (class != ISTC_CLASS_ASYNC) {
-                    DPRINT("unknown class %d\n", class);
-                    continue;
-                }
-                
-                /* now callback, need lock it first ? */
-                for (i = 0; i < ISTC_ASYNC_CALLBACK_MAX; i++) {
-                    if(g_istc_async_desc.callback[i]) {
-                        ((g_istc_async_desc.callback)[i])(command, head + 1, 
-                            ret - sizeof(istc_head_t));
-                    }
-                }
-            }
-
-        }
-
-    }
-
-    return NULL;
-}
-
-
-
-int istc_async_callback_register(istc_async_callback_t callback)
-{
-    //int ret = -1;
-    int errer_no;
-
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    int sock = -1;
-    pthread_t tid = -1;
-    int registered = 0;
-    int registered_cnt = 0;
-
-    SURE_PTR(callback);
-
-    DPRINT0("register a async callback\n");
-
-    if ((errer_no = pthread_rwlock_wrlock(&g_istc_async_desc.rwlock)) < 0) {
-        DPRINT("wrlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    if (g_istc_async_desc.sock == -1) {
-        /* init the sock and create a thread */
-        DPRINT0("first call this, init every thing\n");
-        if ((sock = istc_client_open()) == -1) {
-            DPRINT("open socket failed\n");
-            return -1;
-        }
-
-        istc_socket_nonblock(sock);
-        
-        /* create a thread */
-        DPRINT("create a thread to receive async notification!\n");
-        if ((errer_no =
-             pthread_create(&tid, NULL, istc_async_handler,
-                            (void *) sock)) != 0) {
-            DPRINT("unlock error %s\n", strerror(errer_no));
-            istc_client_close(sock);
-            
-            if ((errer_no = pthread_rwlock_unlock(&g_istc_async_desc.rwlock)) < 0) {
-                DPRINT("unlock error %s\n", strerror(errer_no));
-            }            
-            return -1;
-        }
-
-        g_istc_async_desc.sock = sock;
-        g_istc_async_desc.tid = tid;
-        
-    } 
-   
-    int i;
-    for (i = 0; i < ISTC_ASYNC_CALLBACK_MAX; i++) {
-        if (g_istc_async_desc.callback[i] != NULL) {
-            DPRINT("slot %d is registered\n", i);
-            registered_cnt++;
-        } else {
-            if (!registered) {
-                DPRINT("register in index %d\n", i);
-                g_istc_async_desc.callback[i] = callback;
-                registered = 1;
-            }
-        }
-    }
-
-    if ((errer_no = pthread_rwlock_unlock(&g_istc_async_desc.rwlock)) < 0) {
-        DPRINT("unlock error %s\n", strerror(errer_no));
-        istc_client_close(sock);
-        if (tid != -1) {
-            pthread_cancel(tid);
-        }
-        return -1;
-    }
-
-    if (registered == 0) {
-        DPRINT("all register slot is full\n");
-        return ISTC_ERR_FULL;
-    }
-
-    if (registered_cnt > 0) {
-        DPRINT0("aready register to server\n");
-        return 0;
-    }
-    
-    /* register callback */
-    FILL_HEAD(head, ISTC_CLASS_ASYNC, ISTC_CLASS_ASYNC_CMD_REGISTER, 0, seq);
-    DPRINT0("send to register info to server\n");
-    if (send(g_istc_async_desc.sock, buff, sizeof (istc_head_t), MSG_NOSIGNAL) 
-        == -1) {
-        DERROR("send error\n");
-        istc_client_close(sock);
-        if (tid != -1) {
-            pthread_cancel(tid);
-        }        
-        return -1;
-    }    
-
-    DPRINT0("register async success\n");
-    return 0;
-}
-
-int istc_async_callback_unregister(istc_async_callback_t callback)
-{
-    //int ret = -1;
-    int errer_no;
-
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    int registered_cnt = 0;
-
-    SURE_PTR(callback);
-
-    FILL_HEAD(head, ISTC_CLASS_ASYNC,
-              ISTC_CLASS_ASYNC_CMD_UNREGISTER,
-              0, seq);
-
-    DPRINT0("unregister async\n");
-
-    if ((errer_no = pthread_rwlock_wrlock(&g_istc_async_desc.rwlock)) < 0) {
-        DPRINT("wrlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    int i;
-    for (i = 0; i < ISTC_ASYNC_CALLBACK_MAX; i++) {
-        if (g_istc_async_desc.callback[i] == callback) {
-            g_istc_async_desc.callback[i] = NULL;
-            continue;
-        }
-        /* check if any register more, if none unregister from server */
-        if (g_istc_async_desc.callback[i] != NULL) {
-            registered_cnt++;
-        }
-    }
-
-    if (registered_cnt == 0 &&
-        g_istc_async_desc.sock >= 0) {
-        DPRINT0("found the callback\n");
-        if (send(g_istc_async_desc.sock, buff, sizeof (istc_head_t),
-            MSG_NOSIGNAL) == -1) {
-            DERROR("send error\n");
-            if ((errer_no = pthread_rwlock_unlock(&g_istc_async_desc.rwlock)) < 0) {
-                DPRINT("unlock error %s\n", strerror(errer_no));
-            }
-            return -1;
-        }
-    }
-
-    if ((errer_no = pthread_rwlock_unlock(&g_istc_async_desc.rwlock)) < 0) {
-        DPRINT("unlock error %s\n", strerror(errer_no));
-        return -1;
-    }
-
-    return 0;
-}
-#endif
 
 int istc_route_state_get(int *state)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_route_get_state_t *data =
-        (istc_class_route_get_state_t *) (head + 1);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_ROUTE, ISTC_CLASS_ROUTE_CMD_GET_STATE,
-              sizeof (istc_class_route_get_state_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_route_get_state_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_route_get_state_t), ret);
-        *state = ntohl(data->state);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_route_state_set(int state)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_route_set_state_t *data =
-        (istc_class_route_set_state_t *) (head + 1);
-
-    data->state = htonl(state);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_ROUTE, ISTC_CLASS_ROUTE_CMD_SET_STATE,
-              sizeof (istc_class_route_set_state_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_route_set_state_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 int istc_route_default_get(const char *ifname, unsigned int *gateway)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_route_get_default_t *data =
-        (istc_class_route_get_default_t *) (head + 1);
+#if 0
+    PDU_LIST_st *pdu_head = NULL;
+    struct variable_list *vars = NULL;
+    ISTC_SNMP_RESPONSE_ERRSTAT status = ISTC_SNMP_ERR_UNKNOWN;
 
-    SURE_PTR(gateway);
+    oid docsDevDraftServerTftp[] = {1,3,6,1,3,83,1,4,4,0};
+    size_t docsDevDraftServerTftp_len = OID_LENGTH(docsDevDraftServerTftp);
 
-    SURE_OPEN(sock);
-
-    if (ifname && *ifname) {
-        strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
+    SNMP_ASSERT(gateway != NULL);
+    
+    if(istc_snmp_walk(docsDevDraftServerTftp, docsDevDraftServerTftp_len, &pdu_head, &status) != ISTC_SNMP_SUCCESS)
+    {
+        istc_log("can not get docsDevDraftServerTftp\n");
+        return -1;
     }
-
-    FILL_HEAD(head, ISTC_CLASS_ROUTE, ISTC_CLASS_ROUTE_CMD_GET_DEFAULT,
-              sizeof (istc_class_route_get_default_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_route_get_default_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_route_get_default_t), ret);
-        *gateway = ntohl(data->gateway);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    vars = pdu_head->response->variables;
+    if(memcmp(vars->name, docsDevDraftServerTftp, docsDevDraftServerTftp_len * sizeof(oid)) != 0)
+    {
+        istc_log("can not get docsDevDraftServerTftp\n");
+        istc_snmp_free_pdulist(pdu_head);
+        return -1;
     }
+    *gateway = *(vars->val.integer);
+    istc_snmp_free_pdulist(pdu_head);
+    
+    istc_log("get default route success\n");
+    return 0;
+#else
+    SNMP_DATA_LIST_st *data_head = NULL;
+    int cnt = 0;
+    char *ip = NULL;
 
-    istc_client_close(sock);
+    oid cabhCdpWanDnsServerIp[] = {CABHCDPWANDNSSERVERTABLE_OID, CABHCDPWANDNSSERVERENTRY_OID, COLUMN_CABHCDPWANDNSSERVERIP};
+    size_t cabhCdpWanDnsServerIp_len = OID_LENGTH(cabhCdpWanDnsServerIp);
+    
+    SNMP_ASSERT(gateway != NULL);
 
+    if(istc_snmp_table_parse_datalist(cabhCdpWanDnsServerIp, cabhCdpWanDnsServerIp_len, (SnmpTableFun)_cabhCdpWanDnsServerTable_set_column, sizeof(cabhCdpWanDnsServerTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse cabhCdpWanDnsServerIp\n");
+        return -1;
+    }
+    istc_log("parse cabhCdpWanDnsServerIp success\n");
+    ip = ((cabhCdpWanDnsServerTable_rowreq_ctx *)data_head->data)->data.cabhCdpWanDnsServerIp;
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
 
-    return ret;
+    *gateway = ((unsigned int)ip[3] << 24) | ((unsigned int)ip[2] << 16) | ((unsigned int)ip[1] << 8) | ((unsigned int)ip[0]);
+    istc_log("get mac success\n");
+    return 0;
+#endif
 }
 
 
 int istc_route_default_set(const char *ifname, unsigned int gateway)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_route_set_default_t *data =
-        (istc_class_route_set_default_t *) (head + 1);
-
-    if (ifname && *ifname) {
-        strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    }
-
-    data->gateway = htonl(gateway);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_ROUTE, ISTC_CLASS_ROUTE_CMD_SET_DEFAULT,
-              sizeof (istc_class_route_set_default_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_route_set_default_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 int istc_dns_address_get(unsigned int *primary, unsigned int *secondary)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dns_get_dns_t *data = (istc_class_dns_get_dns_t *) (head + 1);
+#if 0
+    FILE *fp = NULL;
+    char result[128] = {0};
+    char *buf = result;
+    char dns[16] = {0};
 
-    SURE_PTR(primary);
-    SURE_PTR(secondary);
+    SNMP_ASSERT(primary != NULL && secondary != NULL);
 
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_DNS, ISTC_CLASS_DNS_CMD_GET_DNS,
-              sizeof (istc_class_dns_get_dns_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dns_get_dns_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_dns_get_dns_t), ret);
-        *primary = ntohl(data->primary);
-        *secondary = ntohl(data->secondary);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    if(access(DNSINFO_FILE, F_OK) != 0)
+    {
+        istc_log("can not find dnsinfo.txt\n");
+        return -1;
+    }
+    
+    if((fp = popen("busybox cat "DNSINFO_FILE" | grep nameserver | busybox awk '{print $NF}'", "r")) == NULL)
+    {
+        istc_log("can not popen\n");
+        return -1;
+    }
+    
+    memset(result, 0, sizeof(result));
+    fread(result, 1, sizeof(result) - 1, fp);
+    if(strlen(result) == 0)
+    {
+        pclose(fp);
+        istc_log("can not get dns\n");
+        return -1;
     }
 
-    istc_client_close(sock);
+    buf = strchr(result, '\n');
+    if(buf)
+    {
+        *buf = 0;
+    }
+    strncpy(dns, result, sizeof(dns) - 1);
+    istc_inet_aton(dns, primary);
+    istc_log("get dns1 %s success\n", dns);
+    if(++buf)
+    {
+        char *p = strchr(buf, '\n');
+        if(p)
+        {
+            *p = 0;
+        }
+        strncpy(dns, buf, sizeof(dns) - 1);
+        istc_inet_aton(dns, secondary);
+        istc_log("get dns2 %s success\n", dns);
+    }
+            
+    pclose(fp);
+    istc_log("get dns success\n");
+    return 0;
+#else
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    int cnt = 0;
+    char *ip = NULL;
 
+    oid cabhCdpWanDnsServerIp[] = {CABHCDPWANDNSSERVERTABLE_OID, CABHCDPWANDNSSERVERENTRY_OID, COLUMN_CABHCDPWANDNSSERVERIP};
+    size_t cabhCdpWanDnsServerIp_len = OID_LENGTH(cabhCdpWanDnsServerIp);
+    
+    SNMP_ASSERT(primary != NULL && secondary != NULL);
 
-    return ret;
+    if(istc_snmp_table_parse_datalist(cabhCdpWanDnsServerIp, cabhCdpWanDnsServerIp_len, (SnmpTableFun)_cabhCdpWanDnsServerTable_set_column, sizeof(cabhCdpWanDnsServerTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse cabhCdpWanDnsServerIp\n");
+        return -1;
+    }
+    istc_log("parse cabhCdpWanDnsServerIp success\n");
+    data_list = data_head;
+    ip = ((cabhCdpWanDnsServerTable_rowreq_ctx *)data_list->data)->data.cabhCdpWanDnsServerIp;
+    *primary = ((unsigned int)ip[3] << 24) | ((unsigned int)ip[2] << 16) | ((unsigned int)ip[1] << 8) | ((unsigned int)ip[0]);
+    if((data_list = data_list->next) != NULL)
+    {
+        ip = ((cabhCdpWanDnsServerTable_rowreq_ctx *)data_list->data)->data.cabhCdpWanDnsServerIp;
+        *secondary = ((unsigned int)ip[3] << 24) | ((unsigned int)ip[2] << 16) | ((unsigned int)ip[1] << 8) | ((unsigned int)ip[0]);
+    }
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+    
+    istc_log("get dns success\n");
+    return 0;
+#endif
 }
 
 
 int istc_dns_address_set(unsigned int primary, unsigned int secondary)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_dns_set_dns_t *data = (istc_class_dns_set_dns_t *) (head + 1);
-
-    data->primary = htonl(primary);
-    data->secondary = htonl(secondary);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_DNS, ISTC_CLASS_DNS_CMD_SET_DNS,
-              sizeof (istc_class_dns_set_dns_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_dns_set_dns_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_misc_config_save()
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_SAVE_CONFIG,
-              sizeof (istc_head_t), seq);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 int istc_pppoe_config_get(const char *ifname, char *username, char *password)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_config_t *data = (istc_class_pppoe_config_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_PTR(username);
-    SURE_PTR(password);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_GET_CONFIG,
-              sizeof (istc_class_pppoe_config_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_pppoe_config_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_pppoe_config_t), ret);
-        strncpy(username, data->username, ISTC_PPPOE_USERNAME_SIZE);
-        strncpy(password, data->password, ISTC_PPPOE_PASSWORD_SIZE);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 
 int istc_pppoe_config_set(const char *ifname, char *username, char *password)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_config_t *data = (istc_class_pppoe_config_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_STR(username);
-    SURE_STR(password);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->username, username, ISTC_PPPOE_USERNAME_SIZE);
-    strncpy(data->password, password, ISTC_PPPOE_PASSWORD_SIZE);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_SET_CONFIG,
-              sizeof (istc_class_pppoe_config_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_pppoe_config_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_pppoe_state(const char *ifname, int *state)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_state_t *data = (istc_class_pppoe_state_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_PTR(state);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_GET_STATE,
-              sizeof (istc_class_pppoe_state_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_pppoe_state_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_pppoe_state_t), ret);
-        *state = ntohl(data->state);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_pppoe_connect(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_connect_t *data =
-        (istc_class_pppoe_connect_t *) (head + 1);
-
-    SURE_STR(ifname);
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_CONNECT,
-              sizeof (istc_class_pppoe_connect_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_pppoe_connect_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 
 int istc_async_pppoe_connect(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_connect_t *data =
-        (istc_class_pppoe_connect_t *) (head + 1);
-	
-    SURE_STR(ifname);
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_ASYNC_CONNECT,
-		sizeof (istc_class_pppoe_connect_t), seq);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_pppoe_connect_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 int istc_pppoe_disconnect(const char *ifname)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_pppoe_disconnect_t *data =
-        (istc_class_pppoe_disconnect_t *) (head + 1);
-
-
-    SURE_STR(ifname);
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_PPPOE, ISTC_CLASS_PPPOE_CMD_DISCONNECT,
-              sizeof (istc_class_pppoe_disconnect_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_pppoe_disconnect_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 
 int istc_ping(const istc_ping_para_t * para, istc_ping_result_t * result)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_ping_para_t *data = (istc_ping_para_t *) (buff + sizeof (istc_head_t));
-    istc_ping_result_t *pr = NULL;
-    int timeout;
-
-    SURE_PTR(para);
-    SURE_PTR(result);
-
-    if (para->host[0] == '\0') {
-        DPRINT("need host name or IP\n");
-        return -1;
-    }
-
-    memcpy(data, para, sizeof (istc_ping_para_t));
-
-    if (data->count <= 0 || data->count > ISTC_PING_COUNT_MAX) {
-        data->count = ISTC_PING_COUNT_DEFAULT;
-    }
-
-    if (data->interval < ISTC_PING_INTERVAL_MIN
-        || data->interval > ISTC_PING_INTERVAL_MAX) {
-        data->interval = ISTC_PING_INTERVAL_DEFAULT;
-    }
-
-    if (data->pkt_size <= 0 || data->pkt_size > ISTC_PING_PKT_SIZE_MAX) {
-        data->pkt_size = ISTC_PING_PKT_SIZE_DEFAULT;
-    }
-
-    if (data->ip_ttl < ISTC_PING_IP_TTL_MIN
-        || data->ip_ttl > ISTC_PING_IP_TTL_MAX) {
-        data->ip_ttl = ISTC_PING_IP_TTL_DEFAULT;
-    }
-
-    if (data->timeout < ISTC_PING_TIMEOUT_MIN
-        || data->timeout > ISTC_PING_TIMEOUT_MAX) {
-        data->timeout = ISTC_PING_TIMEOUT_DEFAULT;
-    }
-
-    timeout = data->timeout * data->count;
-
-    data->count = htonl(data->count);
-    data->interval = htonl(data->interval);
-    data->pkt_size = htonl(data->pkt_size);
-    data->ip_ttl = htonl(data->ip_ttl);
-    data->timeout = htonl(data->timeout);
-    data->fragment = htonl(data->fragment);
-    data->src_addr = htonl(data->src_addr);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_PING,
-              sizeof (istc_ping_para_t), seq);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t) + sizeof (istc_ping_para_t),
-               ret);
-
-    /* try to recv the head */
-    if (istc_recv_timeout(sock, buff, sizeof (istc_head_t), 2) == -1) {
-        DPRINT("recv ping result head failed\n");
-        istc_client_close(sock);
-        return -1;
-    }
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        /* now wait the ping result */
-        if (istc_recv_timeout
-            (sock, buff, sizeof (istc_ping_result_t), timeout + 2) == -1) {
-            DPRINT("recv ping result body failed\n");
-            istc_client_close(sock);
-            return -1;
-        }
-
-        /* convert the byte order */
-        pr = (istc_ping_result_t *) buff;
-        result->rtt_min = ntohl(pr->rtt_min);
-        result->rtt_max = ntohl(pr->rtt_max);
-        result->rtt_avg = ntohl(pr->rtt_avg);
-        result->time = ntohl(pr->time);
-        result->send = ntohl(pr->send);
-        result->recv = ntohl(pr->recv);
-
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
-
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 
 int istc_async_ping(const istc_ping_para_t * para)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_ping_para_t *data = (istc_ping_para_t *) (buff + sizeof (istc_head_t));
-    int timeout;
-
-    SURE_PTR(para);
-
-    if (para->host[0] == '\0') {
-        DPRINT("need host name or IP\n");
-        return -1;
-    }
-
-    memcpy(data, para, sizeof (istc_ping_para_t));
-
-    if (data->count <= 0 || data->count > ISTC_PING_COUNT_MAX) {
-        data->count = ISTC_PING_COUNT_DEFAULT;
-    }
-
-    if (data->interval < ISTC_PING_INTERVAL_MIN
-        || data->interval > ISTC_PING_INTERVAL_MAX) {
-        data->interval = ISTC_PING_INTERVAL_DEFAULT;
-    }
-
-    if (data->pkt_size <= 0 || data->pkt_size > ISTC_PING_PKT_SIZE_MAX) {
-        data->pkt_size = ISTC_PING_PKT_SIZE_DEFAULT;
-    }
-
-    if (data->ip_ttl < ISTC_PING_IP_TTL_MIN
-        || data->ip_ttl > ISTC_PING_IP_TTL_MAX) {
-        data->ip_ttl = ISTC_PING_IP_TTL_DEFAULT;
-    }
-
-    if (data->timeout < ISTC_PING_TIMEOUT_MIN
-        || data->timeout > ISTC_PING_TIMEOUT_MAX) {
-        data->timeout = ISTC_PING_TIMEOUT_DEFAULT;
-    }
-
-    timeout = data->timeout * data->count;
-    timeout= timeout;
-
-    data->count = htonl(data->count);
-    data->interval = htonl(data->interval);
-    data->pkt_size = htonl(data->pkt_size);
-    data->ip_ttl = htonl(data->ip_ttl);
-    data->timeout = htonl(data->timeout);
-    data->fragment = htonl(data->fragment);
-    data->src_addr = htonl(data->src_addr);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_PING_ASYNC,
-              sizeof (istc_ping_para_t), seq);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t) + sizeof (istc_ping_para_t),
-               ret);
-
-    /* try to recv the head */
-    if (istc_recv_timeout(sock, buff, sizeof (istc_head_t), 2) == -1) {
-        DPRINT("recv ping result head failed\n");
-        istc_client_close(sock);
-        return -1;
-    }
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 
 int istc_interface_list_get(char list[][ISTC_IFNAME_SIZE], int *count)
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    int cnt_ret;
-    int cnt = 0;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_misc_cmd_interface_list_get_t *data =
-        (istc_class_misc_cmd_interface_list_get_t *) (head + 1);
-
-    SURE_PTR(list);
-    SURE_PTR(count);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_INTERFACE_LIST_GET, 0,
-              seq);
-
-    SURE_SENDN(sock, buff, sizeof (istc_head_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-        length = ntohs(head->length);
-        if (length > 0) {
-            /* recv cnt */
-            SURE_RECVN(sock, data,
-                       sizeof (istc_class_misc_cmd_interface_list_get_t), ret);
-            cnt_ret = ntohl(data->cnt);
-            //DPRINT("recv cnt = %d, pcnt = %d\n", cnt_ret, *pcnt);
-            cnt = cnt_ret;
-            if (cnt > 0) {
-                int total = cnt * (ISTC_IFNAME_SIZE);
-                memset(buff, 0, sizeof (buff));
-                SURE_RECVN(sock, buff, total, ret);
-                if (*count < cnt) {
-                    cnt = *count;
-                }
-                /* copy to result */
-                int i;
-                char *ptr = buff;
-                for (i = 0; i < cnt; i++, ptr += ISTC_IFNAME_SIZE) {
-                    strncpy(list[i], ptr, ISTC_IFNAME_SIZE);
-                }
-            }
-
-        }
-
-        *count = cnt;
-
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 
 int istc_interface_type_get(const char *ifname, int *type)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_misc_cmd_interface_type_get_t *data =
-        (istc_class_misc_cmd_interface_type_get_t *) (head + 1);
-
-    SURE_STR(ifname);
-    SURE_PTR(type);
-
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_INTERFACE_TYPE_GET,
-              sizeof (istc_class_misc_cmd_interface_type_get_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) +
-               sizeof (istc_class_misc_cmd_interface_type_get_t), ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data,
-                   sizeof (istc_class_misc_cmd_interface_type_get_t), ret);
-        *type = ntohl(data->type);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
-
 
 
 int istc_log_level_get(int *level)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_misc_cmd_log_lv_get_t *data =
-        (istc_class_misc_cmd_log_lv_get_t *) (head + 1);
-
-    SURE_PTR(level);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_GET_LOG_LV,
-              sizeof (istc_class_misc_cmd_log_lv_get_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_misc_cmd_log_lv_get_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        SURE_RECVN(sock, data, sizeof (istc_class_misc_cmd_log_lv_get_t), ret);
-        *level = ntohl(data->level);
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 int istc_log_level_set(int level)
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[128] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_misc_cmd_log_lv_set_t *data =
-        (istc_class_misc_cmd_log_lv_set_t *) (head + 1);
-
-
-    if (!((level >= 0 && level <= 7) || (level == -1))) {
-        DPRINT("log level is invalid\n");
-        return -1;
-    }
-
-    data->level = htonl(level);
-
-    SURE_OPEN(sock);
-
-    FILL_HEAD(head, ISTC_CLASS_MISC, ISTC_CLASS_MISC_CMD_SET_LOG_LV,
-              sizeof (istc_class_misc_cmd_log_lv_set_t), seq);
-
-    SURE_SENDN(sock, buff,
-               sizeof (istc_head_t) + sizeof (istc_class_misc_cmd_log_lv_set_t),
-               ret);
-
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-
-    istc_client_close(sock);
-
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
-
 
 
 /* utils */
@@ -4450,420 +1851,498 @@ int istc_log_level_set(int level)
 
 int istc_str2mac(const char *str, unsigned char *mac)
 {
-    char buff[24] = { 0 };
-    char *end;
-    int ret;
-
-    strncpy(buff, str, 24);
-
-    if (buff[2] == buff[5] &&
-        buff[2] == buff[8] && buff[2] == buff[11] && buff[2] == buff[14]) {
-        if (buff[2] != ':' && buff[2] != '-') {
-            //printf("mac string error format\n");
-            return -1;
-        }
-    }
-
-    int i;
-    for (i = 0; i <= 15; i += 3) {
-        ret = strtol(buff + i, &end, 16);
-        if (end == buff + i) {
-            return -1;
-        }
-        if (ret < 0 || ret > 255) {
-            return -1;
-        }
-
-        *mac++ = (unsigned char) ret;
-    }
-
-
-    return 0;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 int istc_qos_set_mode( int mode )
 {
-	int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_qos_mode_t *data = (istc_class_qos_mode_t *) (head + 1);
-	
-	
-    if (mode <= ISTC_QOS_MODE_NONE
-        || mode >= ISTC_QOS_MODE_MAX) {
-        DPRINT("mode unknown %d\n", mode);
-        return -1;
-    }
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_QOS, ISTC_CLASS_QOS_CMD_SET_MODE,
-		sizeof (istc_class_qos_mode_t), seq);
-	
-    data->mode = htonl(mode);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_qos_mode_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 int istc_qos_get_mode( int *mode )
 {
-	int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_qos_mode_t *data = (istc_class_qos_mode_t *) (head + 1);
-	
-    SURE_PTR(mode);
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_QOS, ISTC_CLASS_QOS_CMD_GET_MODE,
-		sizeof (istc_class_qos_mode_t), seq);
-	
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_qos_mode_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_qos_mode_t)) {
-			
-            SURE_RECVN(sock, data, length, ret);
-			
-            *mode = ntohl(data->mode);
-            //DPRINT("recv addr_mode 0x%x\n", *mode);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
 
 int istc_qos_set_device_bandwidth( const unsigned char *mac, int download_kbyte, int upload_kbyte )
 {
-	int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_conf_qos_device_bandwidth_t *data = (istc_conf_qos_device_bandwidth_t *) (head + 1);
-		
-    SURE_PTR(mac);
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_QOS, ISTC_CLASS_QOS_CMD_SET_DEVICE_BANDWIDTH,
-		sizeof (istc_conf_qos_device_bandwidth_t), seq);
-	
-    memcpy(data->mac, mac, 6);
-	data->download_kbyte = htonl(download_kbyte);
-	data->upload_kbyte = htonl(upload_kbyte);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_conf_qos_device_bandwidth_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    ISTC_SNMP_RESPONSE_ERRSTAT stat = ISTC_SNMP_ERR_UNKNOWN;
+    int get_flag = 0;
+    char valuestr[16] = {0};
+
+    oid wifiAssocStaMacAddress[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTAMACADDRESS};
+    size_t wifiAssocStaMacAddress_len = OID_LENGTH(wifiAssocStaMacAddress);
+    oid wifiAssocStaTxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTATXRATELIMIT, 0, 0};
+    size_t wifiAssocStaTxRateLimit_len = OID_LENGTH(wifiAssocStaTxRateLimit);
+    oid wifiAssocStaRxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTARXRATELIMIT, 0, 0};
+    size_t wifiAssocStaRxRateLimit_len = OID_LENGTH(wifiAssocStaRxRateLimit);
+    
+    SNMP_ASSERT(mac != NULL);
+
+    /*get device mac from wifiAssocStaTable*/
+    if(istc_snmp_walk(wifiAssocStaMacAddress, wifiAssocStaMacAddress_len, &pdu_head, &stat) != 0)
+    {
+        istc_log("can not walk wifiAssocStaMacAddress\n");
+        return -1;
     }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        if(get_flag == 1)
+        {
+            break;
+        }
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if(memcmp(vars->val.bitstring, mac, 6) == 0)
+            {
+                wifiAssocStaTxRateLimit[wifiAssocStaTxRateLimit_len - 2] = vars->name[vars->name_length- 2];
+                wifiAssocStaTxRateLimit[wifiAssocStaTxRateLimit_len - 1] = vars->name[vars->name_length- 1];
+                wifiAssocStaRxRateLimit[wifiAssocStaRxRateLimit_len - 2] = vars->name[vars->name_length- 2];
+                wifiAssocStaRxRateLimit[wifiAssocStaRxRateLimit_len - 1] = vars->name[vars->name_length- 1];
+                get_flag = 1;
+                break;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    if(get_flag == 0)
+    {
+        istc_log("can not get device mac from wifiAssocStaTable success\n");
+        return -1;
+    }
+    istc_log("get device mac from wifiAssocStaTable success\n");
+
+    /*set ceil rx*/
+    istc_inet_itoa(download_kbyte, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    if(istc_snmp_set(wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len, SNMP_U, valuestr, &stat) != 0)
+    {
+        istc_log("can not set ceil rx to %u\n", download_kbyte);
+    }
+    istc_log("set ceil rx success\n");
+
+    /*set ceil tx*/
+    istc_inet_itoa(upload_kbyte, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    if(istc_snmp_set(wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len, SNMP_U, valuestr, &stat) != 0)
+    {
+        istc_log("can not set ceil txt to %u\n", upload_kbyte);
+    }
+    istc_log("set ceil tx success\n");
+    
+    return 0;
 }
+
+
 
 int istc_qos_get_device_bandwidth( const unsigned char *mac, int *download_kbyte, int *upload_kbyte )
 {
-	int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_conf_qos_device_bandwidth_t *data = (istc_conf_qos_device_bandwidth_t *) (head + 1);
-	
-    SURE_PTR(download_kbyte);
-	SURE_PTR(upload_kbyte);
+    SNMP_DATA_LIST_st *data_head = NULL;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    wifiAssocStaTable_rowreq_ctx *ctx = NULL;
+    int cnt = 0;
+    ISTC_SNMP_RESPONSE_ERRSTAT stat = ISTC_SNMP_ERR_UNKNOWN;
+    int get_flag = 0;
+    int download = -1, upload = -1;
 
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_QOS, ISTC_CLASS_QOS_CMD_GET_DEVICE_BANDWIDTH,
-		sizeof (istc_conf_qos_device_bandwidth_t), seq);
-	
-	memcpy(data->mac, mac, 6);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_conf_qos_device_bandwidth_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_conf_qos_device_bandwidth_t)) {
-			
-            SURE_RECVN(sock, data, length, ret);
-			
-            *download_kbyte = ntohl(data->download_kbyte);
-			*upload_kbyte = ntohl(data->upload_kbyte);
-            
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
+    oid wifiAssocStaMacAddress[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTAMACADDRESS};
+    size_t wifiAssocStaMacAddress_len = OID_LENGTH(wifiAssocStaMacAddress);
+    oid wifiAssocStaTxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTATXRATELIMIT, 0, 0};
+    size_t wifiAssocStaTxRateLimit_len = OID_LENGTH(wifiAssocStaTxRateLimit);
+    oid wifiAssocStaRxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTARXRATELIMIT, 0, 0};
+    size_t wifiAssocStaRxRateLimit_len = OID_LENGTH(wifiAssocStaRxRateLimit);
+    
+    SNMP_ASSERT(mac != NULL && download_kbyte != NULL && upload_kbyte != NULL);
+
+    /*get device mac from wifiAssocStaTable*/
+    if(istc_snmp_walk(wifiAssocStaMacAddress, wifiAssocStaMacAddress_len, &pdu_head, &stat) != 0)
+    {
+        istc_log("can not walk wifiAssocStaMacAddress\n");
+        return -1;
     }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        if(get_flag == 1)
+        {
+            break;
+        }
+        for(vars = pdu_list->response->variables; vars; vars = vars->next_variable)
+        {
+            if(memcmp(vars->name, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if(memcmp(vars->val.bitstring, mac, 6) == 0)
+            {
+                wifiAssocStaTxRateLimit[wifiAssocStaTxRateLimit_len - 2] = vars->name[vars->name_length- 2];
+                wifiAssocStaTxRateLimit[wifiAssocStaTxRateLimit_len - 1] = vars->name[vars->name_length- 1];
+                wifiAssocStaRxRateLimit[wifiAssocStaRxRateLimit_len - 2] = vars->name[vars->name_length- 2];
+                wifiAssocStaRxRateLimit[wifiAssocStaRxRateLimit_len - 1] = vars->name[vars->name_length- 1];
+                get_flag = 1;
+                break;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    if(get_flag == 0)
+    {
+        istc_log("can not get device mac from wifiAssocStaTable success\n");
+        return -1;
+    }
+    istc_log("get device mac from wifiAssocStaTable success\n");
+    
+    /*get ceil rx*/
+    if(istc_snmp_table_parse_datalist(wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len, (SnmpTableFun)_wifiAssocStaTable_set_column, sizeof(wifiAssocStaTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiAssocStaTxRateLimit\n");
+        return -1;
+    }
+    istc_log("parse wifiAssocStaTxRateLimit success\n");
+    ctx = (wifiAssocStaTable_rowreq_ctx *)(data_head->data);
+    download = (int)ctx->data.wifiAssocStaTxRateLimit;
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+    
+    /*set ceil tx*/
+    if(istc_snmp_table_parse_datalist(wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len, (SnmpTableFun)_wifiAssocStaTable_set_column, sizeof(wifiAssocStaTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse wifiAssocStaRxRateLimit\n");
+        return -1;
+    }
+    istc_log("parse wifiAssocStaRxRateLimit success\n");
+    ctx = (wifiAssocStaTable_rowreq_ctx *)(data_head->data);
+    upload = (int)ctx->data.wifiAssocStaRxRateLimit;
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+
+    *download_kbyte = (unsigned long)download;
+    *upload_kbyte = (unsigned long)upload;
+
+    istc_log("get ceil download %u, ceil upload %u success\n", *download_kbyte, *upload_kbyte);
+    return 0;
 }
+
+
 
 int istc_qos_get_device_bandwidth_list( istc_conf_qos_device_bandwidth_t *list, int *count )
 {
-	int sock;
-    int ret;
-    int seq;
-    int length;
-    int cnt_max;
-	int cnt_ret;
-	int b_only_get_count = 0;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_qos_device_bandwidth_list_t *data =
-        (istc_class_qos_device_bandwidth_list_t *) (head + 1);
-	
-    if (NULL == list) {
-		b_only_get_count = 1;
+    PDU_LIST_st *pdu_head = NULL, *pdu_list = NULL;
+    ISTC_SNMP_RESPONSE_ERRSTAT stat = ISTC_SNMP_ERR_UNKNOWN;
+    int get_flag = 0;
+    istc_conf_qos_device_bandwidth_t *qos_list = NULL;
+    unsigned char (*mac_list)[6] = NULL;
+    int qos_list_count = 0;
+    int i = 0, j = 0;
+    
+    oid wifiAssocStaMacAddress[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTAMACADDRESS};
+    size_t wifiAssocStaMacAddress_len = OID_LENGTH(wifiAssocStaMacAddress);
+    oid wifiAssocStaTxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTATXRATELIMIT, 0, 0};
+    size_t wifiAssocStaTxRateLimit_len = OID_LENGTH(wifiAssocStaTxRateLimit);
+    oid wifiAssocStaRxRateLimit[] = {WIFIASSOCSTATABLE_OID, WIFIASSOCSTAENTRY_OID, COLUMN_WIFIASSOCSTARXRATELIMIT, 0, 0};
+    size_t wifiAssocStaRxRateLimit_len = OID_LENGTH(wifiAssocStaRxRateLimit);
+    
+    SNMP_ASSERT(list != NULL && count != NULL && *count > 0);
+
+    /*get device mac from wifiAssocStaTable*/
+    if(istc_snmp_walk(wifiAssocStaMacAddress, wifiAssocStaMacAddress_len, &pdu_head, &stat) != 0)
+    {
+        istc_log("can not walk wifiAssocStaMacAddress\n");
+        return -1;
+    }
+    if(istc_snmp_table_get_rows_num(pdu_head, &qos_list_count) != 0 || qos_list_count <= 0)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not get sta count from wifiAssocStaTable\n");
+        return -1;
+    }
+    else
+    {
+        istc_log("get sta count %d from wifiAssocStaTable success\n", qos_list_count);
+    }
+    if((qos_list = (istc_conf_qos_device_bandwidth_t *)calloc(qos_list_count, sizeof(istc_conf_qos_device_bandwidth_t))) == NULL)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not calloc\n");
+        return -1;
+    }
+    if((mac_list = (unsigned char (*)[6])calloc(qos_list_count, sizeof(unsigned char (*)[6]))) == NULL)
+    {
+        istc_snmp_free_pdulist(pdu_head);
+        istc_log("can not calloc\n");
+        free(qos_list);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        if(get_flag == 1)
+        {
+            break;
+        }
+        for(i = 0, vars = pdu_list->response->variables; vars && i < qos_list_count; vars = vars->next_variable, i++)
+        {
+            if(memcmp(vars->name, wifiAssocStaMacAddress, wifiAssocStaMacAddress_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            int len = (sizeof(mac_list[i]) > vars->val_len) ? vars->val_len : sizeof(mac_list[i]);
+            memcpy(mac_list[i], vars->val.bitstring, len);
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    istc_log("get device mac from wifiAssocStaTable success\n");
+
+    /*get devices ceil rx*/
+    if(istc_snmp_walk(wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len, &pdu_head, &stat) != 0)
+    {
+        istc_log("can not walk wifiAssocStaTxRateLimit\n");
+        free(qos_list);
+        free(mac_list);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        if(get_flag == 1)
+        {
+            break;
+        }
+        for(i = 0, vars = pdu_list->response->variables; vars && i < qos_list_count; vars = vars->next_variable, i++)
+        {
+            if(memcmp(vars->name, wifiAssocStaTxRateLimit, wifiAssocStaTxRateLimit_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if((int)vars->val.integer != -1 && j < qos_list_count)
+            {
+                memcpy(qos_list[j].mac, mac_list[i], sizeof(qos_list[j].mac));
+                qos_list[j].download_kbyte = (int)vars->val.integer;
+                j++;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    istc_log("get device ceil rx success\n");
+    
+    /*get device ceil rx*/
+    j = 0;
+    if(istc_snmp_walk(wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len, &pdu_head, &stat) != 0)
+    {
+        istc_log("can not walk wifiAssocStaRxRateLimit\n");
+        free(qos_list);
+        free(mac_list);
+        return -1;
+    }
+    pdu_list = pdu_head;
+    istc_snmp_print_pdulist(pdu_head, wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len);
+    while(pdu_list != NULL)
+    {
+        struct variable_list *vars = NULL;
+        if(get_flag == 1)
+        {
+            break;
+        }
+        for(i = 0, vars = pdu_list->response->variables; vars && i < qos_list_count; vars = vars->next_variable, i++)
+        {
+            if(memcmp(vars->name, wifiAssocStaRxRateLimit, wifiAssocStaRxRateLimit_len * sizeof(oid)) != 0)
+            {
+                break;
+            }
+            if((int)vars->val.integer != -1 && j < qos_list_count)
+            {
+                qos_list[j].upload_kbyte = (int)vars->val.integer;
+                j++;
+            }
+        }
+        pdu_list = pdu_list->next;
+    }
+    istc_snmp_free_pdulist(pdu_head);
+    pdu_head = NULL;
+    istc_log("get device ceil tx success\n");
+
+    *count = *count > j ? j : *count;
+    memcpy(list, qos_list, *count * sizeof(istc_conf_qos_device_bandwidth_t));
+    istc_log("get qos list success, count = %d\n", *count);
+    free(qos_list);
+    free(mac_list);
+    return 0;
+}
+
+
+int istc_init_snmp_wifissid(void)
+{
+    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
+    clabWIFISSIDTable_rowreq_ctx *ctx = NULL;
+    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
+    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
+    int ssids_num = 0;
+    istc_ap_ssid_t *ssid = NULL;
+    int i = 0;
+    int ret = 0;
+    static int snmp_index_init_flag = 0;
+
+    if(snmp_index_init_flag == 1)
+    {
+        return 0;
     }
 
-    SURE_PTR(count);
+    memset(gSNMPWIFISSID, 0, sizeof(gSNMPWIFISSID));
+    
+    if(istc_snmp_table_parse_datalist(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &ssids_num) != 0)
+    {
+        istc_log("can not parse clabWIFISSIDName\n");
+        return -1;
+    }
+    istc_log("parse clabWIFISSIDName success\n");
+    if(ssids_num <= 0)
+    {
+        istc_log("get ssids_num %d wrong\n", ssids_num);
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
+    istc_log("get ssids num %d success\n", ssids_num);
 
-	cnt_max = *count;
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_QOS, ISTC_CLASS_QOS_CMD_GET_DEVICE_BANDWIDTH_LIST, 0,
-		seq);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_qos_device_bandwidth_list_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
+    if((ssid = (istc_ap_ssid_t *)calloc(ssids_num, sizeof(istc_ap_ssid_t))) == NULL)
+    {
+        istc_log("an not calloc\n");
+        istc_snmp_table_free_datalist(data_head);
+        return -1;
+    }
+    
+    data_list= data_head; 
+    while(data_list != NULL && i < ssids_num)
+    {
+        ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
+        ssid[i].index = data_list->row;
+        strncpy(ssid[i].ifname, ctx->data.clabWIFISSIDName, sizeof(ssid[i].ifname) - 1);
+        data_list = data_list->next;
+        i++;
+    }
+    istc_snmp_table_free_datalist(data_head);
 
-	do //only for use break;
-	{
-		head->rc = ntohl(head->rc);
-		if (head->rc != 0) {
-			DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-			ret = head->rc;
-			*count = 0;
-			break;
-		}
-
-		length = ntohs(head->length);
-		if (0 == length) {
-			ret = 0;
-			*count = 0;
-			break;
-		}
-
-		/* recv cnt */
-		SURE_RECVN(sock, data,
-			sizeof (istc_class_qos_device_bandwidth_list_t), ret);
-		cnt_ret = ntohl(data->cnt);
-
-		if (1 == b_only_get_count || 0 == cnt_ret) {
-			*count = cnt_ret;
-			ret = 0;
-			break;
-		}
-
-		int total = cnt_ret * (sizeof(istc_conf_qos_device_bandwidth_t));
-
-		if (total > sizeof(buff)) {
-			DPRINT("error: recv buff is small than data\n");
-			*count = 0;
-			ret = -1;
-			break;
-		}
-
-		if (cnt_max < cnt_ret) {
-			DPRINT("error: user space is small than data\n");
-			*count = 0;
-			ret = -1;
-			break;
-		}
-
-		memset(buff, 0, sizeof (buff));
-		SURE_RECVN(sock, buff, total, ret);
-		
-		/* copy to result */
-		int i;
-		istc_conf_qos_device_bandwidth_t *buf_ptr = (istc_conf_qos_device_bandwidth_t *)buff;
-		istc_conf_qos_device_bandwidth_t *list_ptr = list;
-		for (i = 0; i < cnt_ret; i++) {
-			
-			buf_ptr->download_kbyte = ntohl(buf_ptr->download_kbyte);
-			buf_ptr->upload_kbyte = ntohl(buf_ptr->upload_kbyte);
-			buf_ptr->b_used = ntohs(buf_ptr->b_used);
-			
-			*list_ptr = *buf_ptr;
-			
-			buf_ptr++;
-			list_ptr++;
-		}
-		*count = cnt_ret;
-		ret = 0;
-
-	} while (0);
-	
-    istc_client_close(sock);
+    if(ssids_num <= ISTC_AP_SSID_LIST_MAX) /*43228*/
+    {
+        gSNMPWIFISSID[ISTC_AP_SSID_2DOT4G].index = ssid[0].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_SSID_2DOT4G].ifname, ssid[0].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_SSID_5G].index = ssid[0].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_SSID_5G].ifname, ssid[0].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_GUEST_SSID_2DOT4G].index = ssid[1].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_GUEST_SSID_2DOT4G].ifname, ssid[1].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_GUEST_SSID_5G].index = ssid[1].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_GUEST_SSID_5G].ifname, ssid[1].ifname);
+        gSNMPWifiInterfaceCount = 1;
+        snmp_index_init_flag = 1;
+    }
+    else if(ssids_num > ISTC_AP_SSID_LIST_MAX + 2) /*4352*/
+    {
+        gSNMPWIFISSID[ISTC_AP_SSID_2DOT4G].index = ssid[0].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_SSID_2DOT4G].ifname, ssid[0].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_SSID_5G].index = ssid[ISTC_AP_INTERFACE_SSID_MAX].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_SSID_5G].ifname, ssid[ISTC_AP_INTERFACE_SSID_MAX].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_GUEST_SSID_2DOT4G].index = ssid[1].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_GUEST_SSID_2DOT4G].ifname, ssid[1].ifname);
+        
+        gSNMPWIFISSID[ISTC_AP_GUEST_SSID_5G].index = ssid[ISTC_AP_INTERFACE_SSID_MAX + 1].index;
+        strcpy(gSNMPWIFISSID[ISTC_AP_GUEST_SSID_5G].ifname, ssid[ISTC_AP_INTERFACE_SSID_MAX + 1].ifname);
+        gSNMPWifiInterfaceCount = 2;
+        snmp_index_init_flag = 1;
+    }
+    else
+    {
+        ret = -1;
+    }
+    
+    free(ssid);
+    istc_log("init wifi ssid, ret = %d\n", ret);
     return ret;
+}
+
+int istc_init(void)
+{
+    istc_snmp_init();
+    while(0 != istc_init_snmp_wifissid())
+    {
+        sleep(1);
+    }
+    return 0;
 }
 
 int istc_wireless_ap_ssid_add_by_index( const char *ifname, int index, const istc_ap_ssid_t * ssid )
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_add_ssid_t *data = (istc_class_ap_add_ssid_t *) (head + 1);
-    char len;
-	
-    SURE_STR(ifname);
-    SURE_PTR(ssid);
-	
-    if (ssid->ssid[0] == '\0') {
-        DPRINT("SSID name must not null\n");
-        return -1;
-    }
-	
-    if (ssid->encryption != ISTC_WIRELESS_ENCRYPTION_OPEN) {
-        if (ssid->encryption != ISTC_WIRELESS_ENCRYPTION_WPA &&
-            ssid->encryption != ISTC_WIRELESS_ENCRYPTION_WPA2 &&
-            ssid->encryption != ISTC_WIRELESS_ENCRYPTION_WPA_WPA2) {
-            DPRINT("encryption must be open, wpa or wpa2\n");
-            return -1;
-        }
-        if (ssid->password[0] == '\0') {
-            DPRINT("non open SSID need password!\n");
-            return -1;
-        }
-        len = strlen(ssid->password);
-        if (len < 8) {
-            DPRINT("password must more than 8 characters\n");
-            return -1;
-        }
-    }
-	
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_ADD_SSID,
-		sizeof (istc_class_ap_add_ssid_t), seq);
-
-	data->ssid.index = htonl(index);
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    strncpy(data->ssid.ssid, ssid->ssid, ISTC_SSID_NAME_SIZE);
-    if (ssid->password[0]) {
-        strncpy(data->ssid.password, ssid->password, ISTC_SSID_PSWD_SIZE);
-    }
-    data->ssid.encryption = htonl(ssid->encryption);
-    data->ssid.channel = htonl(ssid->channel);
-    data->ssid.b_hidden = htonl(ssid->b_hidden);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_ap_add_ssid_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;	
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_ssid_t * ssid )
 {
     SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
     clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
+    clabWIFIRadioTable_rowreq_ctx *clab_wifi_radio_ctx = NULL;
     wifiBssTable_rowreq_ctx *bss_ctx = NULL;
     wifiBssWpaTable_rowreq_ctx *bsswpa_ctx = NULL;
-    int row = 0;
     istc_ap_ssid_t ap_ssid;
     int cnt = 0;
-    int i = 0;
-    
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
+    int ssid_index = 0;
+    int disabledflag = 0;
+
+    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, CLABWIFISSIDENTRY_OID, COLUMN_CLABWIFISSIDNAME};
     size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
     
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
+    oid clabWIFIRadioOperatingFrequencyBand[] = {CLABWIFIRADIOTABLE_OID, CLABWIFIRADIOENTRY_OID, COLUMN_CLABWIFIRADIOOPERATINGFREQUENCYBAND, 0};
+    size_t clabWIFIRadioOperatingFrequencyBand_len = OID_LENGTH(clabWIFIRadioOperatingFrequencyBand);
+
+    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSENABLE, 0};
+    size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
+    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSSSID, 0};
     size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE, 0};
+    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSSECURITYMODE, 0};
     size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
     
-    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
+    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, WIFIBSSWPAENTRY_OID, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
     size_t wifiBssWpaPreSharedKey_len = OID_LENGTH(wifiBssWpaPreSharedKey);
     
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL);
-    SNMP_ASSERT(index > 0 && index < ISTC_AP_SSID_LIST_MAX);
+    SNMP_ASSERT(ssid != NULL);
+    SNMP_ASSERT(index > ISTC_AP_SSID_2DOT4G && index <= ISTC_AP_SSID_TYPE_MAX);
     
-    istc_log("ifname = %s\n", ifname);
     memset(&ap_ssid, 0, sizeof(ap_ssid));
-    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
+    ssid_index = gSNMPWIFISSID[index - 1].index;
+    istc_log("index = %d\n", ssid_index);
+
+    ap_ssid.b_visitor = index <= 2 ? 0 : 1;
     
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
+    if(istc_snmp_table_parse_datalist(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
         istc_log("can not parse clabWIFISSIDName\n");
         return -1;
@@ -4873,27 +2352,91 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
     while(data_list != NULL)
     {
         ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strstr(ssid_ctx->data.clabWIFISSIDName, ifname) != NULL && ++i == index)
+        if(data_list->row == ssid_index)
         {
-            row = data_list->row;
-            istc_log("find success, index = %d, ifname = %s\n", index, ssid_ctx->data.clabWIFISSIDName);
+            istc_log("find success, index = %d, ifname = %s\n", ssid_index, ssid_ctx->data.clabWIFISSIDName);
+            strncpy(ssid->ifname, ssid_ctx->data.clabWIFISSIDName, sizeof(ssid->ifname) - 1);
             break;
         }
         data_list = data_list->next;
     }
-    istc_snmp_free_datalist(data_head);
+    istc_snmp_table_free_datalist(data_head);
     data_head = NULL;
     if(data_list == NULL)
     {
-        istc_log("can not get bssid, index = %d\n", index);
+        istc_log("can not get bssid, index = %d\n", ssid_index);
         return -1;
     }
 
-    wifiBssSsid[wifiBssSsid_len - 1] = row;
-    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
-    wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
-    
-    if(istc_snmp_table_parse_data(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    clabWIFIRadioOperatingFrequencyBand[clabWIFIRadioOperatingFrequencyBand_len - 1] = index <= 2 ? ssid_index - 1 : ssid_index - 2;
+    wifiBssEnable[wifiBssEnable_len - 1] = ssid_index;
+    wifiBssSsid[wifiBssSsid_len - 1] = ssid_index;
+    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = ssid_index;
+    wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = ssid_index;
+
+    /*get band*/
+    switch(index - 1)
+    {
+    case ISTC_AP_SSID_2DOT4G:
+    case ISTC_AP_GUEST_SSID_2DOT4G:
+        ap_ssid.band = ISTC_AP_SSID_2DOT4G;
+        break;
+    case ISTC_AP_SSID_5G:
+    case ISTC_AP_GUEST_SSID_5G:
+        ap_ssid.band = ISTC_AP_SSID_5G;
+        break;
+    default:
+        istc_log("index %d, not avaliable\n", index);
+        return -1;
+    }
+    if(istc_snmp_table_parse_datalist(clabWIFIRadioOperatingFrequencyBand, clabWIFIRadioOperatingFrequencyBand_len, (SnmpTableFun)_clabWIFIRadioTable_set_column, sizeof(clabWIFIRadioTable_rowreq_ctx), &data_head, &cnt) != 0)
+    {
+        istc_log("can not parse clabWIFIRadioOperatingFrequencyBand\n");
+        return -1;
+    }
+    istc_log("parse clabWIFIRadioOperatingFrequencyBand success\n");
+    clab_wifi_radio_ctx = (clabWIFIRadioTable_rowreq_ctx *)(data_head->data);
+    switch((int)(clab_wifi_radio_ctx->data.clabWIFIRadioOperatingFrequencyBand))
+    {
+    case CLABWIFIRADIOOPERATINGFREQUENCYBAND_N2DOT4GHZ:
+        if(gSNMPWifiInterfaceCount == 1 && (index - 1 ==  ISTC_AP_SSID_5G || index - 1 == ISTC_AP_GUEST_SSID_5G))
+        {
+            disabledflag = 1;
+        }
+        break;
+    case CLABWIFIRADIOOPERATINGFREQUENCYBAND_N5GHZ:
+        if(gSNMPWifiInterfaceCount == 1 && (index - 1 ==  ISTC_AP_SSID_2DOT4G || index - 1 == ISTC_AP_GUEST_SSID_2DOT4G))
+        {
+            disabledflag = 1;
+        }
+        break;
+    default:
+        break;
+    }
+    istc_snmp_table_free_datalist(data_head);
+    data_head = NULL;
+
+    /*get enabledflag*/
+    if(disabledflag == 0)
+    {
+        if(istc_snmp_table_parse_datalist(wifiBssEnable, wifiBssEnable_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
+        {
+            istc_log("can not parse wifiBssEnable\n");
+            return -1;
+        }
+        istc_log("parse wifiBssEnable success\n");
+        bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
+        ap_ssid.b_disable = (bss_ctx->data.wifiBssEnable == TRUTHVALUE_TRUE) ? 0 : 1;
+        istc_snmp_table_free_datalist(data_head);
+        data_head = NULL;
+    }
+    else
+    {
+        ap_ssid.b_disable = 1;
+    }
+
+    /*get ssid name*/
+    if(istc_snmp_table_parse_datalist(wifiBssSsid, wifiBssSsid_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
         istc_log("can not parse wifiBssSsid\n");
         return -1;
@@ -4901,10 +2444,11 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
     istc_log("parse wifiBssSsid success\n");
     bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
     strncpy(ap_ssid.ssid, bss_ctx->data.wifiBssSsid, sizeof(ap_ssid.ssid) - 1);
-    istc_snmp_free_datalist(data_head);
+    istc_snmp_table_free_datalist(data_head);
     data_head = NULL;
 
-    if(istc_snmp_table_parse_data(wifiBssSecurityMode, wifiBssSecurityMode_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
+    /*get security mode*/
+    if(istc_snmp_table_parse_datalist(wifiBssSecurityMode, wifiBssSecurityMode_len, (SnmpTableFun)_wifiBssTable_set_column, sizeof(wifiBssTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
         istc_log("can not parse wifiBssSecurityMode\n");
         return -1;
@@ -4913,26 +2457,26 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
     bss_ctx = (wifiBssTable_rowreq_ctx *)(data_head->data);
     switch(bss_ctx->data.wifiBssSecurityMode)
     {
-    case 0:
+    case WIFIBSSSECURITYMODE_DISABLED:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_OPEN;
         break;
-    case 1:
+    case WIFIBSSSECURITYMODE_WEP:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_WEP;
         break;
-    case 2:
+    case WIFIBSSSECURITYMODE_WPAPSK:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_WPA;
         break;
-    case 3:
+    case WIFIBSSSECURITYMODE_WPA2PSK:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_WPA2;
         break;
-    case 7:
+    case WIFIBSSSECURITYMODE_WPAWPA2PSK:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_WPA_WPA2;
         break;
     default:
         ap_ssid.encryption = ISTC_WIRELESS_ENCRYPTION_NONE;
         break;
     }
-    istc_snmp_free_datalist(data_head);
+    istc_snmp_table_free_datalist(data_head);
     data_head = NULL;
     if(ap_ssid.encryption == ISTC_WIRELESS_ENCRYPTION_OPEN ||
         ap_ssid.encryption == ISTC_WIRELESS_ENCRYPTION_NONE)
@@ -4941,8 +2485,9 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
         istc_log("encryption is not open or unknown, we will return\n");
         return 0;
     }
-    
-    if(istc_snmp_table_parse_data(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, (SnmpTableFun)_wifiBssWpaTable_set_column, sizeof(wifiBssWpaTable_rowreq_ctx), &data_head, &cnt) != 0)
+
+    /*get password*/
+    if(istc_snmp_table_parse_datalist(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, (SnmpTableFun)_wifiBssWpaTable_set_column, sizeof(wifiBssWpaTable_rowreq_ctx), &data_head, &cnt) != 0)
     {
         istc_log("can not parse wifiBssWpaTable_rowreq_ctx\n");
         return -1;
@@ -4950,7 +2495,7 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
     istc_log("parse wifiBssWpaTable_rowreq_ctx success\n");
     bsswpa_ctx = (wifiBssWpaTable_rowreq_ctx *)(data_head->data);
     strncpy(ap_ssid.password, bsswpa_ctx->data.wifiBssWpaPreSharedKey, sizeof(ap_ssid.password) - 1);
-    istc_snmp_free_datalist(data_head);
+    istc_snmp_table_free_datalist(data_head);
     data_head = NULL;
 
     memcpy((void *)ssid, (const void *)&ap_ssid, sizeof(ap_ssid));
@@ -4959,263 +2504,170 @@ int istc_wireless_ap_ssid_get_by_index( const char *ifname, int index, istc_ap_s
 
 int istc_wireless_ap_ssid_set_by_index( const char *ifname, int index, const istc_ap_ssid_t * ssid )
 {
-    SNMP_DATA_LIST_st *data_head = NULL, *data_list = NULL;
-    clabWIFISSIDTable_rowreq_ctx *ssid_ctx = NULL;
-    int row = 0;
     istc_ap_ssid_t ap_ssid;
-    int cnt = 0;
-    ISTC_SNMP_RESPONSE_ERRSTAT stat = -1;
-    char *security_mode = NULL;
-    int i = 0;
+    ISTC_SNMP_RESPONSE_ERRSTAT stat = ISTC_SNMP_ERR_UNKNOWN;
+    char security_mode[16] = {0};
+    int ssid_index = 0;
+    char valuestr[16] = {0};
+    int band = 0;
     
-    oid clabWIFISSIDName[] = {CLABWIFISSIDTABLE_OID, COLUMN_CLABWIFISSIDID, COLUMN_CLABWIFISSIDNAME};
-    size_t clabWIFISSIDName_len = OID_LENGTH(clabWIFISSIDName);
-
-    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSENABLE, 0};
+    oid wifiBssEnable[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSENABLE, 0};
     size_t wifiBssEnable_len = OID_LENGTH(wifiBssEnable);
-    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSSID, 0};
+    oid wifiBssSsid[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSSSID, 0};
     size_t wifiBssSsid_len = OID_LENGTH(wifiBssSsid);
-    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, COLUMN_WIFIBSSID, COLUMN_WIFIBSSSECURITYMODE, 0};
+    oid wifiBssSecurityMode[] = {WIFIBSSTABLE_OID, WIFIBSSENTRY_OID, COLUMN_WIFIBSSSECURITYMODE, 0};
     size_t wifiBssSecurityMode_len = OID_LENGTH(wifiBssSecurityMode);
-    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, COLUMN_WIFIBSSWPAALGORITHM, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
+    oid wifiBssWpaPreSharedKey[] = {WIFIBSSWPATABLE_OID, WIFIBSSWPAENTRY_OID, COLUMN_WIFIBSSWPAPRESHAREDKEY, 0};
     size_t wifiBssWpaPreSharedKey_len = OID_LENGTH(wifiBssWpaPreSharedKey);
     
-    SNMP_ASSERT(ifname != NULL && *ifname != 0 && ssid != NULL);
-    SNMP_ASSERT(ssid->ssid[0] != 0);
-
-    istc_log("ifname = %s\n", ifname);
-    memset(&ap_ssid, 0, sizeof(ap_ssid));
-    strncpy(ap_ssid.ifname, ifname, sizeof(ap_ssid.ifname) - 1);
+    oid clabWIFIRadioOperatingFrequencyBand[] = {CLABWIFIRADIOTABLE_OID, CLABWIFIRADIOENTRY_OID, COLUMN_CLABWIFIRADIOOPERATINGFREQUENCYBAND, 0};
+    size_t clabWIFIRadioOperatingFrequencyBand_len = OID_LENGTH(clabWIFIRadioOperatingFrequencyBand);
+    oid clabWIFIWIFICommitSettingsValue[] = {CLABWIFIWIFICOMMITSETTINGSVALUE_OID, 0};
+    size_t clabWIFIWIFICommitSettingsValue_len = OID_LENGTH(clabWIFIWIFICommitSettingsValue);
     
-    if(istc_snmp_table_parse_data(clabWIFISSIDName, clabWIFISSIDName_len, (SnmpTableFun)_clabWIFISSIDTable_set_column, sizeof(clabWIFISSIDTable_rowreq_ctx), &data_head, &cnt) != 0)
-    {
-        istc_log("can not parse clabWIFISSIDTable_rowreq_ctx\n");
-        return -1;
-    }
-    istc_log("parse clabWIFISSIDTable_rowreq_ctx success\n");
-    data_list= data_head; 
-    while(data_list != NULL)
-    {
-        ssid_ctx = (clabWIFISSIDTable_rowreq_ctx *)(data_list->data);
-        if(strstr(ssid_ctx->data.clabWIFISSIDName, ifname) != NULL && ++i == index)
-        {
-            row = data_list->row;
-            istc_log("find success, ifname = %s, row = %d\n", ifname, row);
-            break;
-        }
-        data_list = data_list->next;
-    }
-    istc_snmp_free_datalist(data_head);
-    data_head = NULL;
-    if(data_list == NULL)
-    {
-        istc_log("can not get bssid, ifname = %s\n", ifname);
-        return -1;
-    }
+    SNMP_ASSERT(ssid != NULL && ssid->ssid[0] != 0);
+    SNMP_ASSERT(index > ISTC_AP_SSID_2DOT4G && index <= ISTC_AP_SSID_TYPE_MAX);
 
-    wifiBssEnable[wifiBssEnable_len - 1] = row;
-    wifiBssSsid[wifiBssSsid_len - 1] = row;
-    wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = row;
-    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = row;
-
-    if(ssid->b_disable == 1)
-    {
-        if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "2", &stat) != 0)
-        {
-            istc_log("can not set bss enable, ifname = %s, ssid_name = %s\n", ifname, ssid->ssid);
-            return -1;
-        }
-        istc_log("set wifiBssEnable to 2 success\n");
-        return 0;
-    }
-    
-    istc_log("ssid->encryption= %d\n", ssid->encryption);
-    switch(ssid->encryption)
-    {
-        case ISTC_WIRELESS_ENCRYPTION_OPEN:
-            security_mode = "0";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WEP:
-            security_mode = "1";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA:
-            security_mode = "2";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA2:
-            security_mode = "3";
-            break;
-        case ISTC_WIRELESS_ENCRYPTION_WPA_WPA2:
-            security_mode = "7";
-            break;
-        default:
-            istc_log("unkonwn security mode:%d\n", ssid->encryption);
-            return -1;
-    }
-
-    if(istc_snmp_set(wifiBssSsid, wifiBssSsid_len, 's', (char *)ssid->ssid, &stat) != 0)
-    {
-        istc_log("can not set ssid name, ifname = %s\n", ifname);
-        return -1;
-    }
-    istc_log("set wifiBssSsid success\n");
-    
-    if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, 'i', (char *)security_mode, &stat) != 0)
-    {
-        istc_log("can not set ssid security mode, ifname = %s\n", ifname);
-        return -1;
-    }
-    istc_log("set wifiBssSecurityMode success\n");
-    
-    if(*security_mode != '0')
+    if(ssid->encryption != ISTC_WIRELESS_ENCRYPTION_OPEN)
     {
         if(ssid->password[0] == 0 || strlen(ssid->password) < 8)
         {
             istc_log("password wrong\n");
             return -1;
         }
-        if(istc_snmp_set(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, 's', (char *)ssid->password, &stat) != 0)
+    }
+
+    istc_log("ssid->encryption= %d\n", ssid->encryption);
+    switch(ssid->encryption)
+    {
+    case ISTC_WIRELESS_ENCRYPTION_OPEN:
+        istc_inet_itoa(WIFIBSSSECURITYMODE_DISABLED, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+        break;
+    case ISTC_WIRELESS_ENCRYPTION_WEP:
+        istc_inet_itoa(WIFIBSSSECURITYMODE_WEP, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+        break;
+    case ISTC_WIRELESS_ENCRYPTION_WPA:
+        istc_inet_itoa(WIFIBSSSECURITYMODE_WPAPSK, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+        break;
+    case ISTC_WIRELESS_ENCRYPTION_WPA2:
+        istc_inet_itoa(WIFIBSSSECURITYMODE_WPA2PSK, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+        break;
+    case ISTC_WIRELESS_ENCRYPTION_WPA_WPA2:
+        istc_inet_itoa(WIFIBSSSECURITYMODE_WPAWPA2PSK, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+        break;
+    default:
+        istc_log("unkonwn security mode:%d\n", ssid->encryption);
+        return -1;
+    }
+    strncpy(security_mode, valuestr, sizeof(security_mode) - 1);
+    
+    switch(ssid->band)
+    {
+    case ISTC_AP_SSID_2DOT4G:
+        band = CLABWIFIRADIOOPERATINGFREQUENCYBAND_N2DOT4GHZ;
+        break;
+    case ISTC_AP_SSID_5G:
+        band = CLABWIFIRADIOOPERATINGFREQUENCYBAND_N5GHZ;
+        break;
+    default:
+        istc_log("not supported band %d\n", ssid->band);
+        return -1;
+    }
+    
+    if(istc_init_snmp_wifissid() != 0)
+    {
+        istc_log("can not init snmp index\n");
+        return -1;
+    }
+    
+    memset(&ap_ssid, 0, sizeof(ap_ssid));
+    ssid_index = gSNMPWIFISSID[index - 1].index;
+    istc_log("index = %d\n", ssid_index);
+    
+    wifiBssEnable[wifiBssEnable_len - 1] = ssid_index;
+    wifiBssSsid[wifiBssSsid_len - 1] = ssid_index;
+    wifiBssWpaPreSharedKey[wifiBssWpaPreSharedKey_len - 1] = ssid_index;
+    wifiBssSecurityMode[wifiBssSecurityMode_len - 1] = ssid_index;
+    clabWIFIRadioOperatingFrequencyBand[clabWIFIRadioOperatingFrequencyBand_len - 1] = index <= 2 ? ssid_index - 1 : ssid_index - 2;
+    
+    /*set fenquencry band*/
+    istc_inet_itoa(band, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    if(istc_snmp_set(clabWIFIRadioOperatingFrequencyBand, clabWIFIRadioOperatingFrequencyBand_len, SNMP_INT, valuestr, &stat) != 0)
+    {
+        istc_log("can not set fenquencry band, index = %d\n", ssid_index);
+        //return -1;
+    }
+    istc_log("set fenquencry band success\n");
+    istc_inet_itoa(TRUTHVALUE_TRUE, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    if(istc_snmp_set(clabWIFIWIFICommitSettingsValue, clabWIFIWIFICommitSettingsValue_len, SNMP_INT, valuestr, &stat) != 0)
+    {
+        istc_log("can not set clab wifi commit sertings, index = %d\n", ssid_index);
+        //return -1;
+    }
+    istc_log("set clab wifi commit sertings success\n");
+
+    /*set ssid*/
+    if(istc_snmp_set(wifiBssSsid, wifiBssSsid_len, SNMP_STRING, (char *)ssid->ssid, &stat) != 0)
+    {
+        istc_log("can not set ssid name, index = %d\n", ssid_index);
+        //return -1;
+    }
+    istc_log("set ssid name success\n");
+
+    /*set security mode*/
+    if(istc_snmp_set(wifiBssSecurityMode, wifiBssSecurityMode_len, SNMP_INT, (char *)security_mode, &stat) != 0)
+    {
+        istc_log("can not set ssid security mode, index = %d\n", ssid_index);
+        //return -1;
+    }
+    istc_log("set ssid security mode success\n");
+
+    /*set password*/
+    if(*security_mode != '0')
+    {
+        if(istc_snmp_set(wifiBssWpaPreSharedKey, wifiBssWpaPreSharedKey_len, SNMP_STRING, (char *)ssid->password, &stat) != 0)
         {
             istc_log("can not set password\n");
-            return -1;
+            //return -1;
         }
         istc_log("set wifiBssWpaPreSharedKey success\n");
     }
 
-    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, 'i', "1", &stat) != 0)
+    /*set enable or disable*/
+    if(ssid->b_disable == 1)
     {
-        istc_log("can not set bss enable, ifname = %s, ssid_name = %s\n", ifname, ssid->ssid);
-        return -1;
+        istc_inet_itoa(TRUTHVALUE_FALSE, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    }
+    else
+    {
+        istc_inet_itoa(TRUTHVALUE_TRUE, valuestr, sizeof(valuestr) / sizeof(valuestr[0]));
+    }
+    if(istc_snmp_set(wifiBssEnable, wifiBssEnable_len, SNMP_INT, valuestr, &stat) != 0)
+    {
+        istc_log("can not set bss enable, ssid = %s, index = %d\n", ssid->ssid, ssid_index);
+        //return -1;
     }
     istc_log("set wifiBssEnable success\n");
     
-    istc_log("ssid set success, ifnme = %s, index = %d\n", ifname, index);
+    istc_log("ssid set success, index = %d\n", ssid_index);
     return 0;
 }
 
 int istc_wireless_ap_ssid_remove_by_index( const char *ifname, int index )
 {
-	int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_ap_remove_ssid_by_index_t *data =
-        (istc_class_ap_remove_ssid_by_index_t *) (head + 1);
-	
-	
-    SURE_STR(ifname);
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_AP, ISTC_CLASS_AP_CMD_REMOVE_SSID_BY_INDEX,
-		sizeof (istc_class_ap_remove_ssid_by_index_t), seq);
-	
-    strncpy(data->ifname, ifname, ISTC_IFNAME_SIZE);
-    data->index = htonl(index);
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_ap_remove_ssid_by_index_t),
-		ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_lan_set_addr_info( unsigned int gateway, unsigned int addr_begin, unsigned int addr_end )
 {
-    int sock;
-    int ret;
-    int seq;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_lan_addr_info_t *data = (istc_class_lan_addr_info_t *) (head + 1);
-	
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_LAN, ISTC_CLASS_LAN_CMD_SET_ADDR_INFO,
-		sizeof (istc_class_lan_addr_info_t), seq);
-		
-    data->gateway = htonl(gateway);	
-    data->addr_begin = htonl(addr_begin);
-    data->addr_end = htonl(addr_end);
-    printf("%s %d:gateway = %d, start = %d\n", __FUNCTION__, __LINE__, data->gateway, data->addr_begin);	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_lan_addr_info_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        ret = 0;
-    } else {
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
 
 int istc_lan_get_addr_info( unsigned int *gateway, unsigned int *addr_begin, unsigned int *addr_end )
 {
-    int sock;
-    int ret;
-    int seq;
-    int length;
-    char buff[512] = { 0 };
-    istc_head_t *head = (istc_head_t *) buff;
-    istc_class_lan_addr_info_t *data = (istc_class_lan_addr_info_t *) (head + 1);
-	
-    SURE_PTR(gateway);
-    SURE_PTR(addr_begin);
-    SURE_PTR(addr_end);
-	
-    SURE_OPEN(sock);
-	
-    FILL_HEAD(head, ISTC_CLASS_LAN, ISTC_CLASS_LAN_CMD_GET_ADDR_INFO,
-		sizeof (istc_class_lan_addr_info_t), seq);
-	
-	
-    SURE_SENDN(sock, buff,
-		sizeof (istc_head_t) + sizeof (istc_class_lan_addr_info_t), ret);
-	
-    SURE_RECVN(sock, buff, sizeof (istc_head_t), ret);
-	
-    //SURE_RESP(sock, head, ISTC_CLASS_IP, ISTC_CLASS_IP_CMD_GET_IPADDR, seq);
-    head->rc = ntohl(head->rc);
-    if (head->rc == 0) {
-        length = ntohs(head->length);
-        //DPRINT("length = %d\n", length);
-        if (length == sizeof (istc_class_lan_addr_info_t)) {
-			
-            SURE_RECVN(sock, data, length, ret);
-			
-            *gateway = ntohl(data->gateway);
-            *addr_begin = ntohl(data->addr_begin);
-            *addr_end = ntohl(data->addr_end);
-            ret = 0;
-        } else {
-            ret = -1;
-        }
-    } else {
-        DPRINT("rc = %d %s\n", head->rc, istc_errstr(head->rc));
-        ret = head->rc;
-    }
-	
-    istc_client_close(sock);
-	
-    return ret;
+    ISTC_NOTSUPPORT
+    return -1;
 }
+
