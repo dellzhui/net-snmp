@@ -31,7 +31,7 @@ LIBISTC_7251S = $(LIBS_DIR)/libistc_7251s.so
 LIBSNMP = $(LIBS_DIR)/libsnmp.so
 TARGETS = $(LIBSNMP) $(LIBISTC_7251S) $(TEST) $(ISTC_CLI)
 
-CFLAGS += -fPIC -I./include  -Wall  -g -fno-strict-aliasing -O2 -Ulinux -Dlinux=linux -I.
+CFLAGS += -fPIC -I./include -Werror -Wall  -g -fno-strict-aliasing -O2 -Ulinux -Dlinux=linux -I.
 LDFLAGS += -L./lib/netsnmp -lnetsnmp -lm 
 OFLAGS = $(S)/install/brcmSDK/lib/crtbegin_dynamic.o $(S)/install/brcmSDK/lib/crtend_android.o
 
