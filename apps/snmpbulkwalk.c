@@ -75,6 +75,7 @@ int             reps = 10, non_reps = 0;
 
 static int print_oid(oid *Oid, int len)
 {
+		return 0;
     oid *oids = Oid;
     
     if(Oid == NULL || len  <= 0)
@@ -291,7 +292,7 @@ main(int argc, char *argv[])
         pdu->max_repetitions = reps;    /* fill the packet */
         snmp_add_null_var(pdu, name, name_length);
         print_oid(name, name_length);
-        printf("%s %d:create\n", __FUNCTION__, __LINE__);
+        /*printf("%s %d:create\n", __FUNCTION__, __LINE__);*/
 
         /*
          * do the request 
@@ -311,7 +312,7 @@ main(int argc, char *argv[])
                         /*
                          * not part of this subtree 
                          */
-                        printf("%s %d:out, a1 = %d, a2 = %d\n", __FUNCTION__, __LINE__, vars->name_length, rootlen);
+                        /*printf("%s %d:out, a1 = %d, a2 = %d\n", __FUNCTION__, __LINE__, vars->name_length, rootlen);*/
                         running = 0;
                         continue;
                     }
@@ -334,7 +335,7 @@ main(int argc, char *argv[])
                             fprint_objid(stderr, vars->name,
                                          vars->name_length);
                             fprintf(stderr, "\n");
-                            printf("%s %d:out\n", __FUNCTION__, __LINE__);
+                            /*printf("%s %d:out\n", __FUNCTION__, __LINE__);*/
                             running = 0;
                             exitval = 1;
                         }
@@ -350,7 +351,7 @@ main(int argc, char *argv[])
                         /*
                          * an exception value, so stop 
                          */
-                         printf("%s %d:out\n", __FUNCTION__, __LINE__);
+                         /*printf("%s %d:out\n", __FUNCTION__, __LINE__);*/
                         running = 0;
                     }
                 }
@@ -390,7 +391,7 @@ main(int argc, char *argv[])
         }
         if (response)
         {
-            //printf("%s %d:out\n", __FUNCTION__, __LINE__)
+            /*printf("%s %d:out\n", __FUNCTION__, __LINE__);*/
             snmp_free_pdu(response);
         }
     }

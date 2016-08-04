@@ -32,9 +32,9 @@ ${CURDIR}/configure --prefix=${CURDIR}/out --host=arm-linux \
 --with-logfile="/var/log/snmpd.log" --with-persistent-directory="/var/net-snmp" --with-persistent-directory="/var/net-snmp" \
 --disable-mibs --disable-embedded-perl --without-perl-modules \
 --with-out-mib-modules="snmpv3mibs mibII ucd_snmp notification notification-log-mib target agent_mibs agentx disman/event disman/schedule utilities host" \
---with-ldflags="-nostdlib -Wl,--gc-sections -Wl,-Bsymbolic -L${SDK_PATH}/lib -Wl,--no-whole-archive -lcutils -lc -lm -lgcc \
+--with-ldflags="-pie -fPIE -nostdlib -Wl,--gc-sections -Wl,-Bsymbolic -L${SDK_PATH}/lib -Wl,--no-whole-archive -lcutils -lc -lm -lgcc \
  -Wl,--no-undefined -Wl,--whole-archive -Wl,--fix-cortex-a8" \
---with-cflags="-I${SDK_PATH}/include/bionic/libc/include \
+--with-cflags="-pie -fPIE -I${SDK_PATH}/include/bionic/libc/include \
         -I${SDK_PATH}/include/bionic/libm/include \
         -I${SDK_PATH}/include/bionic/libc/arch-arm/include \
         -I${SDK_PATH}/include/bionic/libc/kernel/common \
@@ -42,21 +42,24 @@ ${CURDIR}/configure --prefix=${CURDIR}/out --host=arm-linux \
         -Dmmap64=mmap   -march=armv7-a -mfloat-abi=softfp -finline-functions -finline-limit=300 -fno-inline-functions-called-once -fgcse-after-reload -frerun-cse-after-loop \
         -frename-registers -fomit-frame-pointer -fstrict-aliasing -funswitch-loops   -msoft-float  -DBDBG_DEBUG_BUILD=1 -D_GNU_SOURCE=1 -DLINUX -pipe -D_FILE_OFFSET_BITS=64 \
         -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -DBSTD_CPU_ENDIAN=BSTD_ENDIAN_LITTLE -Wstrict-prototypes -Wno-unused-value" \
-1>>${CURDIR}/build.log 2>&1
-
-sed -i 's/CC -shared \\/CC -shared -nostdlib \\/g' ${CURDIR}/libtool
-sed -i "s/^LIBS\t\t=/LIBS\t\t= ${SDK_PATH//\//\\/}\/lib\/crtbegin_dynamic.o ${SDK_PATH//\//\\/}\/lib\/crtend_android.o/g" apps/Makefile
-
+1>${CURDIR}/build.log 2>&1
 if [ $? -ne 0 ];then
-	echo "can not config net-snmp, check ${CURDIR}/build.log for more info"
+	echo "can not config net-snmp, check build.log for more info"
 	exit 1
 fi
 echo "config net-snmp success"
 
+sed -i 's/CC -shared \\/CC -shared -nostdlib \\/g' ${CURDIR}/libtool && \
+sed -i "s/^LIBS\t\t=/LIBS\t\t= ${SDK_PATH//\//\\/}\/lib\/crtbegin_dynamic.o ${SDK_PATH//\//\\/}\/lib\/crtend_android.o/g" apps/Makefile
+if [ $? -ne 0 ];then
+	echo "fix libtool or Makefile failed"
+	exit 1
+fi
+
 echo "begin to make"
 make 1>>${CURDIR}/build.log 2>&1
 if [ $? -ne 0 ];then
-	echo "make failed, check ${CURDIR}/build.log for more info"
+	echo "make failed, check build.log for more info"
 	exit 1
 fi
 echo "make success"
@@ -64,7 +67,7 @@ echo "make success"
 echo "begin to install"
 make install 1>>${CURDIR}/build.log 2>&1
 if [ $? -ne 0 ];then
-	echo "install failed, check ${CURDIR}/build.log for more info"
+	echo "install failed, check build.log for more info"
 	exit 1
 fi
 echo "install success"
